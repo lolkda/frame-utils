@@ -9,13 +9,17 @@
 ## 核心功能 ✨
 
 - **高性能HTTP客户端**: 基于 `aiohttp` 实现，具备自动重试和灵活的代理管理功能。
-- **京东API深度集成**: 内置了京东h5st签名算法的调用接口，封装了大量的常用京东活动API，简化了与京东服务端的交互。
 - **青龙面板无缝对接**: 强大的青龙OpenAPI客户端，可轻松通过代码管理面板中的环境变量、定时任务、配置文件等。
+- **京东API深度集成**: 内置了京东h5st签名算法的调用接口，封装了大量的常用京东活动API，简化了与京东服务端的交互。
+- **异步进程管理**: 非阻塞地执行和监控外部脚本（如 `.py`, `.js`, `.sh`），获取实时输出，并支持优雅地终止进程。
+- **高级并发控制**: 提供易于使用的并发运行器，能够以指定并发数（线程）分批执行大量异步任务，并控制任务间的等待间隔。
+- **异步安全的文件读写**: 提供带锁的异步文件操作方法，安全地读写字符串、JSON和图片文件，避免并发冲突。
 - **灵活的任务调度器**: 支持与服务器时间同步，可实现高精度的定时、延时、周期性任务调度。
 - **可扩展的通知系统**: 采用插件化设计，可以轻松集成多种推送渠道（如Telegram, Pushplus等），用于任务结果的实时通知。
 - **强大的环境与配置管理**: 简化了环境变量的读取和类型转换，支持从 `config.sh` 文件加载配置。
 - **丰富的User-Agent生成器**: 可生成覆盖苹果、华为、小米等主流品牌的上千种真实移动设备User-Agent，增强请求的模拟度。
 - **结构化的日志系统**: 提供清晰、可定制的日志输出，支持按脚本和日期生成日志文件，便于调试和追踪。
+
 
 ---
 
@@ -24,6 +28,7 @@
 ```
 .
 ├── utils/
+│   ├── jd_api.py           # 封装的京东API
 │   ├── push_plugins/       # 推送插件目录
 │   ├── env_utils.py        # 环境配置读取工具
 │   ├── http_client.py      # 异步HTTP客户端
@@ -31,7 +36,10 @@
 │   ├── openApi.py          # 青龙面板API客户端
 │   ├── sendNotify.py       # 推送通知管理器
 │   ├── time_scheduler.py   # 异步任务调度器
-│   └── user_agent_generator.py # UA生成器
+│   ├── user_agent_generator.py # UA生成器
+│   ├── script_executor.py  # 异步进程管理器
+│   ├── async_file_utils.py # 异步文件工具
+│   └── concurrency_utils.py # 异步并发控制器
 ├── env/
 │   └── config.sh           # 唯一的项目配置文件
 └── main_script.py          # 你的主脚本文件
@@ -96,7 +104,149 @@ export log_level="20"
 
 ## 模块使用指南 🛠️
 
-### 1. 日志 (`logging_utils.py`)
+以下是各核心模块的使用方法和代码示例。
+
+### 1. 异步进程管理器 (`script_executor.py`)
+
+用于以非阻塞方式运行外部命令或脚本。
+
+```python
+import asyncio
+from utils.script_executor import ProcessManager
+
+async def main():
+    manager = ProcessManager()
+    
+    # --- 示例1: 运行一个Python脚本 ---
+    print("准备运行 test_script.py...")
+    # 假设项目根目录下有一个 test_script.py
+    # 内容: 
+    # import time
+    # print("脚本开始运行...")
+    # time.sleep(3)
+    # print("脚本运行结束。")
+    
+    pid = await manager.run_script('test_script.py', args=['arg1', 'arg2'])
+    print(f"脚本已启动，PID: {pid}")
+    
+    # 等待脚本执行完成
+    result_info = await manager.wait_for_process(pid)
+    
+    print(f"\n脚本执行完毕，状态: {result_info.status}")
+    print(f"返回码: {result_info.return_code}")
+    print(f"标准输出:\n{result_info.stdout}")
+    
+    # --- 示例2: 运行一个shell命令 ---
+    print("\n准备运行 'ls -l'...")
+    cmd_pid = await manager.run_command(['ls', '-l'])
+    
+    # 同样可以等待它完成
+    cmd_info = await manager.wait_for_process(cmd_pid)
+    print(f"\nls -l 命令执行完毕，输出:\n{cmd_info.stdout}")
+
+# 运行
+asyncio.run(main())
+```
+
+### 2. 异步并发控制器 (`concurrency_utils.py`)
+
+优雅地管理大量并发任务。
+
+```python
+import asyncio
+from utils.concurrency_utils import RunMethod, ReqConcParam
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("ConcurrencyDemo")
+
+# 模拟一个耗时的异步任务，例如API请求
+async def worker_task(item: dict):
+    task_id = item['id']
+    delay = item['delay']
+    log.info(f"任务 {task_id} 开始，预计耗时 {delay} 秒...")
+    await asyncio.sleep(delay)
+    log.info(f"任务 {task_id} 完成！")
+    return {"id": task_id, "status": "ok"}
+
+async def main():
+    # 准备一批任务数据
+    tasks_to_run = [
+        {'id': 1, 'delay': 2}, {'id': 2, 'delay': 1}, {'id': 3, 'delay': 3},
+        {'id': 4, 'delay': 1}, {'id': 5, 'delay': 2}, {'id': 6, 'delay': 1.5},
+        {'id': 7, 'delay': 2.5}, {'id': 8, 'delay': 1},
+    ]
+
+    # 配置并发参数
+    # - func: 要执行的异步函数
+    # - task: 任务列表
+    # - thread: 最大并发数
+    # - wait: 每批任务执行完后的等待时间
+    conc_params = ReqConcParam(
+        func=worker_task,
+        task=tasks_to_run,
+        thread=3,  # 同时只运行3个任务
+        wait=2     # 每执行完一批（3个）任务后，等待2秒
+    )
+
+    # 使用ReqConcRun运行器
+    async for batch_result in RunMethod.ReqConcRun(conc_params):
+        log.info(f"--- 一批任务执行完毕 ---")
+        for res in batch_result:
+            # res.result 是 worker_task 的返回值
+            # res.task 是原始的任务项
+            log.info(f"结果: {res.result}, 原始任务: {res.task}")
+
+# 运行
+asyncio.run(main())
+```
+
+### 3. 异步安全文件读写 (`async_file_utils.py`)
+
+以异步和并发安全的方式操作文件。
+
+```python
+import asyncio
+from os import path
+from utils.async_file_utils import FileMethod
+
+async def main():
+    file_path = "my_data.json"
+    
+    # --- 示例1: 写入和读取JSON ---
+    my_dict = {"name": "Test", "version": 1, "tags": ["a", "b"]}
+    
+    # 第一次写入，新建文件
+    await FileMethod.write_json(file_path, my_dict, newBuild=True)
+    print(f"JSON已写入到 {file_path}")
+    
+    # 读取验证
+    read_data = await FileMethod.read_json(file_path)
+    print(f"读取到的JSON: {read_data}")
+    
+    # 更新JSON文件 (添加/修改键值)
+    update_info = {"version": 2, "author": "Gemini"}
+    await FileMethod.write_json(file_path, update_info)
+    print("JSON文件已更新。")
+    
+    # 再次读取验证
+    updated_data = await FileMethod.read_json(file_path)
+    print(f"更新后的JSON: {updated_data}")
+    
+    # --- 示例2: 写入和读取文本 ---
+    text_file = "log.txt"
+    await FileMethod.write_str(text_file, "第一行日志\n", mode="w") # w模式覆盖
+    await FileMethod.write_str(text_file, "第二行日志\n", mode="a") # a模式追加
+    
+    content = await FileMethod.read_str(text_file)
+    print(f"\n读取到的文本内容:\n{content}")
+
+# 运行
+# if path.exists("my_data.json"): os.remove("my_data.json")
+# if path.exists("log.txt"): os.remove("log.txt")
+asyncio.run(main())
+```
+
+### 4. 日志 (`logging_utils.py`)
 
 提供结构化的日志记录功能。
 
@@ -118,7 +268,7 @@ log.reset() # 清除临时信息
 log.info("处理完毕。") # 日志恢复为 [MyScript] : 处理完毕。
 ```
 
-### 2. 环境配置读取 (`env_utils.py`)
+### 5. 环境配置读取 (`env_utils.py`)
 
 安全、便捷地从 `config.sh` 读取配置。
 
@@ -139,7 +289,7 @@ my_list = EnvMethod.readEnv("MY_LIST", [])
 print(f"列表内容: {my_list}")
 ```
 
-### 3. HTTP 客户端 (`http_client.py`)
+### 6. HTTP 客户端 (`http_client.py`)
 
 发送异步网络请求的核心。
 
@@ -169,7 +319,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 4. 青龙面板 API (`openApi.py`)
+### 7. 青龙面板 API (`openApi.py`)
 
 与青龙面板进行交互，管理环境和任务。
 
@@ -219,7 +369,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 5. 京东 API (`jd_api.py`)
+### 8. 京东 API (`jd_api.py`)
 
 封装了复杂的签名和API调用逻辑，让你可以专注于业务。
 
@@ -261,7 +411,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 6. 任务调度器 (`time_scheduler.py`)
+### 9. 任务调度器 (`time_scheduler.py`)
 
 用于执行时间敏感的任务。
 
@@ -297,7 +447,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 7. 通知发送 (`sendNotify.py`)
+### 10. 通知发送 (`sendNotify.py`)
 
 用于脚本执行完毕后发送通知。
 
@@ -332,7 +482,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### 8. User-Agent 生成器 (`user_agent_generator.py`)
+### 11. User-Agent 生成器 (`user_agent_generator.py`)
 
 为你的请求提供真实的设备指纹。
 

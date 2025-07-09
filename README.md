@@ -12,210 +12,243 @@
 
 ---
 
-# 📁 1. `env_utils.py` — 环境变量管理工具
+`concurrency_utils.py` 是一个专为异步并发处理设计的工具库，提供了多种并发执行模式，适用于需要高效处理大量异步任务的场景。
 
-### ✅ 类：`EnvMethod`
+## 核心组件
 
-#### 🔧 `newEnv(key: str, value: str, remarks: str = "", mark: str = "")`
-- **功能**：添加新的环境变量并写入 `config.sh`
-- **说明**：可选添加备注和分组标识
-- **示例**：
+### 1. ReqConcParam 类
+用于封装并发执行所需的参数配置。
+
+#### 构造函数
 ```python
-EnvMethod.newEnv("API_KEY", "12345", remarks="OpenAI 密钥", mark="基础配置")
-```
-- **结果**：
-```bash
-# 基础配置
-export API_KEY="12345" # OpenAI 密钥
+ReqConcParam(func, task, thread, wait=0, **kwargs)
 ```
 
----
+#### 参数说明
+- `func`: 要执行的函数或函数列表
+- `task`: 任务列表或元组
+- `thread`: 并发线程数（最大200）
+- `wait`: 批次间等待时间（秒）
+- `**kwargs`: 额外的关键字参数
 
-#### 🔧 `upEnv(key: str, value: str)`
-- **功能**：更新指定的环境变量值
-- **示例**：
+#### 使用示例
 ```python
-EnvMethod.upEnv("API_KEY", "67890")
+param = ReqConcParam(
+    func=my_async_function,
+    task=[task1, task2, task3],
+    thread=5,
+    wait=1.0,
+    timeout=30
+)
 ```
 
----
+### 2. ReqConcResult 类
+封装单个任务的执行结果。
 
-#### 🔧 `readEnv(...)`
-- **功能**：读取并转换环境变量（支持 int、list、bool 自动判断）
-- **参数**：
-  - `key`: 环境变量名
-  - `default`: 默认值（变量为空时返回）
-  - `codeInt`: 是否强转为整数或整数列表
-  - `codeList`: 是否强转为列表
-- **示例**：
+#### 属性
+- `result`: 异步响应结果 (AsyncResponse)
+- `task`: 对应的任务对象
+
+### 3. RunMethod 类
+提供多种并发执行方法的核心类。
+
+## 执行方法
+
+### 1. ConcRun - 基础并发执行
+适用于执行相同函数的多个并发任务。
+
 ```python
-port = EnvMethod.readEnv("PORT", default=8000, codeInt=True)
-flags = EnvMethod.readEnv("FLAGS", default=["a", "b"], codeList=True)
-```
-
----
-
-#### 🔧 `checkEnv(obj_self, config: List[Dict], err_exit: bool = True)`
-- **功能**：按配置批量注入环境变量到对象属性
-- **示例**：
-```python
-class Config: pass
-EnvMethod.checkEnv(Config(), [
-    {"env_key": "API_KEY", "attribute": "api_key", "type": str},
-    {"env_key": "TIMEOUT", "attribute": "timeout", "type": int, "default": 10}
-])
-```
-
----
-
-#### 🔧 `load_config_from_env(obj_self, config_obj, err_exit=True)`
-- **功能**：通过类型注解 + `env_map` 映射自动注入属性值
-- **配置类定义示例**：
-```python
-class AppConfig:
-    env_map = {"api_key": "API_KEY", "timeout": "TIMEOUT"}
-    api_key: str = ""
-    timeout: int = 5
-
-config = AppConfig()
-EnvMethod.load_config_from_env(config, config)
-```
-
----
-
-# 📁 2. `async_file_utils.py` — 异步文件工具
-
-### ✅ 类：`FileMethod`
-
-#### 🔧 `read_str(file_name: str, mode: str = "r")`
-- **说明**：读取文本内容（异步）
-- **示例**：
-```python
-text = await FileMethod.read_str("README.md")
-```
-
----
-
-#### 🔧 `write_str(file_name: str, data: str, mode: str = "a")`
-- **说明**：异步写入文本（自动加锁，避免并发冲突）
-- **示例**：
-```python
-await FileMethod.write_str("log.txt", "日志内容
-")
-```
-
----
-
-#### 🔧 `read_json(file_name: str)`
-- **说明**：异步读取 JSON 文件并返回 Python 对象
-- **示例**：
-```python
-config = await FileMethod.read_json("config.json")
-```
-
----
-
-#### 🔧 `write_json(file_name: str, updata: Dict | List | str, newBuild=False)`
-- **说明**：更新 JSON 内容或新建写入文件
-- **逻辑**：
-  - `newBuild=True`：直接写入
-  - `newBuild=False`：读取后合并再写入
-- **示例**：
-```python
-await FileMethod.write_json("config.json", {"token": "abc"})
-await FileMethod.write_json("list.json", ["entry"], newBuild=True)
-```
-
----
-
-#### 🔧 `write_image(file_name: str, image: bytes)`
-- **说明**：将图片字节数据写入磁盘（异步）
-- **示例**：
-```python
-await FileMethod.write_image("output.jpg", image_bytes)
-```
-
----
-
-# 📁 3. `concurrency_utils.py` — 并发任务执行工具
-
-### ✅ 类：`RunMethod`
-
-#### 🔧 `ConcRun(function, thread, *args, **kwargs)`
-- **功能**：并发执行同一个函数多次
-- **说明**：限制同时运行的任务数量
-- **示例**：
-```python
-await RunMethod.ConcRun(my_func, 5, param="xx")
-```
-
----
-
-#### 🔧 `SubTaskConcRun(func, items: Any)`
-- **说明**：提取类中的列表字段，依次并发执行
-- **要求**：仅支持类中包含单个 list 属性
-- **示例**：
-```python
-class A: urls = ["a", "b"]; token = "abc"
-await RunMethod.SubTaskConcRun(fetch, A())
-```
-
----
-
-#### 🔧 `MultiTaskConcRun(func, items, thread, wait)`
-- **说明**：将多个对象分批处理，每批线程数量限制，支持延迟
-- **返回**：生成器（yield 多个批次）
-- **示例**：
-```python
-async for result_batch in RunMethod.MultiTaskConcRun(fetch, tasks, thread=5, wait=1):
-    ...
-```
-
----
-
-#### 🔧 `ReqConcRun(param: ReqConcParam)`
-- **说明**：使用封装参数对象执行批量请求任务（封装函数和参数）
-- **示例**：
-```python
-from concurrency_utils import ReqConcParam
-
-param = ReqConcParam(func=my_func, task=[[x] for x in range(10)], thread=3)
-async for res in RunMethod.ReqConcRun(param):
-    ...
-```
-
----
-
-### 🧱 类：`ReqConcParam`
-```python
-ReqConcParam(
-    func: Callable,
-    task: List[Any],
-    thread: int,
-    wait: Union[int, float] = 0,
+results = await RunMethod.ConcRun(
+    function=my_async_function,
+    thread=10,
+    *args,
     **kwargs
 )
 ```
 
-### 🧱 类：`ReqConcResult`
+**特点：**
+- 使用信号量控制并发数量
+- 所有任务同时启动并等待完成
+- 返回所有任务的结果列表
+
+### 2. SubTaskConcRun - 子任务并发执行
+处理单个类实例中所有列表属性的并发任务。
+
 ```python
-ReqConcResult(result: AsyncResponse, task: Any)
+results = await RunMethod.SubTaskConcRun(
+    func=my_async_function,
+    items=class_instance,
+    *args,
+    **kwargs
+)
 ```
 
-### 🧱 类：`RunMethod.MultiTaskConcRunResult`
+**工作原理：**
+1. 自动检测类实例中的列表/元组属性
+2. 为列表中每个项目创建并发任务
+3. 保持其他属性作为公共参数
+
+### 3. MultiTaskConcRun - 多任务分批并发
+处理大量任务的分批并发执行。
+
 ```python
-MultiTaskConcRunResult(response: List[AsyncResponse], cookie: Any)
+async for batch_results in RunMethod.MultiTaskConcRun(
+    func=my_async_function,
+    items=task_list,
+    thread=20,
+    wait=0.5,
+    *args,
+    **kwargs
+):
+    # 处理每批结果
+    for result in batch_results:
+        print(f"处理结果: {result.response}")
 ```
+
+**特点：**
+- 分批处理，避免内存过载
+- 支持批次间等待时间
+- 返回生成器，逐批产出结果
+- 自动处理线程数限制（1-200）
+
+### 4. ReqConcRun - 请求并发执行
+专为HTTP请求等场景设计的并发执行器。
+
+```python
+param = ReqConcParam(
+    func=api_request_function,
+    task=request_list,
+    thread=15,
+    wait=1.0
+)
+
+async for batch_results in RunMethod.ReqConcRun(param):
+    for result in batch_results:
+        response = result.result
+        task_info = result.task
+        # 处理响应
+```
+
+**特点：**
+- 分批处理任务列表
+- 支持批次间延迟
+- 返回ReqConcResult对象，包含结果和任务信息
+
+## 使用场景
+
+### 1. API 批量请求
+```python
+# 批量API请求示例
+async def make_api_request(url_data):
+    # 实现API请求逻辑
+    pass
+
+urls = [{'url': 'https://api1.com'}, {'url': 'https://api2.com'}]
+param = ReqConcParam(
+    func=make_api_request,
+    task=urls,
+    thread=10,
+    wait=0.5
+)
+
+async for batch in RunMethod.ReqConcRun(param):
+    for result in batch:
+        print(f"API响应: {result.result}")
+```
+
+### 2. 数据处理管道
+```python
+# 数据处理示例
+class DataProcessor:
+    def __init__(self, data_list, config):
+        self.data_list = data_list  # 列表属性
+        self.config = config
+
+processors = [DataProcessor(data_chunk, config) for data_chunk in chunks]
+
+async for batch in RunMethod.MultiTaskConcRun(
+    func=process_data,
+    items=processors,
+    thread=5,
+    wait=0.2
+):
+    # 处理每批数据处理结果
+    pass
+```
+
+### 3. 文件批量处理
+```python
+# 文件处理示例
+file_tasks = ['file1.txt', 'file2.txt', 'file3.txt']
+param = ReqConcParam(
+    func=process_file,
+    task=file_tasks,
+    thread=3,
+    wait=0.1
+)
+
+async for batch in RunMethod.ReqConcRun(param):
+    for result in batch:
+        print(f"文件处理完成: {result.task}")
+```
+
+## 性能优化建议
+
+### 1. 线程数设置
+- 默认范围：1-200
+- I/O密集型任务：建议20-50
+- CPU密集型任务：建议与CPU核心数相当
+- 根据目标服务器负载能力调整
+
+### 2. 等待时间配置
+- 避免对目标服务器造成过大压力
+- 根据API限流策略设置合适的等待时间
+- 建议0.1-2.0秒之间
+
+### 3. 内存管理
+- 使用生成器模式处理大量数据
+- 及时处理批次结果，避免内存累积
+- 考虑使用数据库或文件存储中间结果
+
+## 错误处理
+
+```python
+import asyncio
+import logging
+
+async def safe_concurrent_run():
+    try:
+        param = ReqConcParam(
+            func=my_function,
+            task=task_list,
+            thread=10,
+            wait=0.5
+        )
+        
+        async for batch in RunMethod.ReqConcRun(param):
+            for result in batch:
+                if hasattr(result.result, 'status') and result.result.status != 200:
+                    logging.error(f"任务失败: {result.task}")
+                    
+    except Exception as e:
+        logging.error(f"并发执行错误: {e}")
+        # 实现重试逻辑或错误恢复
+```
+
+## 注意事项
+
+1. **异步上下文**: 所有方法都需要在异步上下文中调用
+2. **资源管理**: 确保正确关闭网络连接和文件句柄
+3. **错误处理**: 实现适当的异常处理机制
+4. **监控**: 建议添加日志记录和性能监控
+5. **依赖**: 需要确保 `utils.http_client.AsyncResponse` 可用
+
+## 版本兼容性
+
+- 要求 Python 3.7+
+- 依赖 asyncio 标准库
+- 兼容主流异步HTTP客户端库
 
 ---
 
-# ✅ 说明与建议
-
-- 所有涉及文件写入的操作都使用异步 `aiofiles` 实现，具备并发安全性。
-- 环境变量读取时具备健壮的类型转换策略。
-- 并发执行时建议控制线程数量，避免过载。
-- 工具类适用于构建自动化平台、爬虫框架、异步微服务等应用场景。
-
----
-
-© 本文档由 AI 自动生成，可嵌入至 MakerWorld 项目或 ReadMe 文档中。
+*此文档基于 concurrency_utils.py 代码分析编写，如有疑问请参考源代码实现*

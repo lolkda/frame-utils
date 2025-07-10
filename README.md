@@ -89,7 +89,7 @@ export log_level="20"
 
 ## 核心功能 ✨
 
-- **高性能异步请求**: 利用 `curl_cffi` 库，支持HTTP/2和TLS指纹伪装，能更好地模拟真实浏览器行为，有效规避WAF检测。
+- **高性能异步请求**: 利用 `aiohttp` 库，支持HTTP/2和TLS指纹伪装，能更好地模拟真实浏览器行为，有效规避WAF检测。
 - **单例模式**: `AsyncRequestManager` 和 `ProxyManager` 均采用单例模式，确保在整个应用中只有一个实例，高效管理连接和资源。
 - **智能代理管理**: `ProxyManager` 可自动从配置的API地址获取和轮换代理IP，支持代理池和单个API两种模式。
 - **自动重试机制**: `async_curl_requests` 方法内置了失败重试逻辑，提高了脚本的健壮性。

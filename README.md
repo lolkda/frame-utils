@@ -1033,3 +1033,136 @@ if __name__ == "__main__":
 [TIME] | INFO     | [SchedulerDemo] : Demo 结束。
 ```
 *注意：结果中的时间戳会根据您的实际执行时间而变化，但 `wait_until` 会确保 `high_precision_task` 在接近目标时间点 `XX:XX:05` 时被精确触发。*
+
+---
+### **7. User-Agent 生成器 (`user_agent_generator.py`)**
+
+`user_agent_generator.py` 模块提供了一个强大的工具，用于生成海量、真实的移动设备User-Agent字符串。在进行网络爬取或自动化操作时，使用随机且真实的UA是避免被目标网站识别和封锁的关键一步。本模块内置了主流手机品牌（苹果、华为、小米、三星等）的上千种设备型号，并特别包含了针对京东App的专用UA生成器。
+
+## 核心功能 ✨
+
+- **海量设备库**: 内置了来自 Apple, Google, Samsung, Xiaomi, HUAWEI, OPPO, OnePlus, VIVO, MEIZU 等主流厂商的设备型号、代号和内部编码，确保生成的设备信息真实可信。
+- **结构化设备信息**: 获取设备信息时，返回的是一个结构清晰的 `GetPhoneResponse` 对象，而不仅仅是一个字符串，便于您提取和使用其中的任何部分（如品牌、型号等）。
+- **通用UA构建**: 您可以利用获取到的设备信息，轻松构建标准的移动端浏览器User-Agent。
+- **京东App专用UA**: `JdUserAgentGenerator` 类可以生成与京东官方App行为一致的、包含复杂加密参数的UA，是进行京东相关自动化任务的利器。
+
+## 核心类与方法详解
+
+### `PhoneModel` 类
+
+这是一个静态工具类，用于从内置的设备库中随机获取设备信息。
+
+#### `get_phone_models(brand: Optional[str] = None) -> GetPhoneResponse`
+- **功能**: 随机选择一个设备型号并返回其详细信息。
+- **参数**:
+  - `brand` (`str`, optional): **可选参数**。用于指定手机品牌，如 `"Apple"`, `"Xiaomi"`, `"HUAWEI"`。如果留空，则从所有品牌中随机抽取。
+- **返回**:
+  - `GetPhoneResponse`: 一个包含设备详细信息的数据对象。
+
+### `GetPhoneResponse` 数据类
+
+这是 `get_phone_models` 方法返回的对象类型。
+
+- **属性**:
+  - `brand` (`str`): 品牌名称，如 `"Xiaomi"`。
+  - `name` (`str`): 设备系列名称，如 `"Xiaomi 14 Pro"`。
+  - `code_name` (`str`): 设备的开发代号，如 `"shennong"`。
+  - `model_number` (`str`): 具体的设备型号，如 `"23116PN5BC"`。
+  - `phone_name` (`str`): 设备的市场名称，如 `"Xiaomi 14 Pro / Xiaomi 14 Pro 钛金属版"`。
+
+### `JdUserAgentGenerator` 类
+
+这是一个专门用于生成京东App User-Agent的类。
+
+#### `__init__(self, clientVersion: Optional[str] = None, build: Optional[str] = None)`
+- **功能**: 初始化京东UA生成器。
+- **参数**:
+  - `clientVersion` (`str`, optional): 指定京东App的版本号，如 `"12.3.4"`。如果留空，会使用内置的默认值。
+  - `build` (`str`, optional): 指定京东App的构建号，如 `"100574"`。如果留空，会使用内置的默认值。
+
+#### `jd_app_ua(self, name: Literal["jd", "jdh"]) -> JdUserAgentResponse`
+- **功能**: 生成京东App的User-Agent对。
+- **参数**:
+  - `name` (`str`): **必需**。指定要生成的UA类型，`"jd"` 代表京东主站App，`"jdh"` 代表京东健康App。
+- **返回**:
+  - `JdUserAgentResponse`: 一个包含两种格式UA的数据对象。
+
+### `JdUserAgentResponse` 数据类
+
+这是 `jd_app_ua` 方法返回的对象类型。
+
+- **属性**:
+  - `app` (`str`): 用于WebView或一般HTTP请求的完整UA字符串。
+  - `okhttp` (`str`): 用于模拟底层 `okhttp` 库请求的专用UA字符串。
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将完整地展示如何生成通用UA和专用的京东App UA。
+
+```python
+# ua_generator_demo.py
+from utils.user_agent_generator import PhoneModel, JdUserAgentGenerator
+from utils.logging_utils import PrintMethodClass
+import random
+
+# 初始化日志记录器
+log = PrintMethodClass("UADemo")
+
+def main():
+    log.info("--- 1. 获取一个完全随机的设备信息 ---")
+    random_device = PhoneModel.get_phone_models()
+    log.info(f"随机抽取的设备品牌: {random_device.brand}")
+    log.info(f"设备市场名称: {random_device.phone_name}")
+    log.info(f"具体型号: {random_device.model_number}")
+    log.info(f"开发代号: {random_device.code_name}")
+    
+    log.info("\n--- 2. 根据随机设备信息构建一个通用的浏览器UA ---")
+    android_version = random.choice(["12", "13", "14"])
+    generic_ua = (
+        f"Mozilla/5.0 (Linux; Android {android_version}; {random_device.model_number}) "
+        f"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36"
+    )
+    log.info(f"构建的通用UA: {generic_ua}")
+
+    log.info("\n--- 3. 获取一个指定品牌（华为）的设备信息 ---")
+    huawei_device = PhoneModel.get_phone_models(brand="HUAWEI")
+    log.info(f"随机华为设备: {huawei_device.name} ({huawei_device.model_number})")
+
+    log.info("\n--- 4. 生成京东App专用User-Agent ---")
+    # 初始化京东UA生成器，可以指定版本号
+    jd_ua_gen = JdUserAgentGenerator(clientVersion="12.3.4", build="100500")
+    
+    # 生成京东主站App的UA
+    jd_ua_pair = jd_ua_gen.jd_app_ua(name="jd")
+    log.info("生成的京东主站App UA:")
+    log.info(f"  - App UA: {jd_ua_pair.app[:100]}...") # 打印部分以保持简洁
+    log.info(f"  - OkHttp UA: {jd_ua_pair.okhttp}")
+
+if __name__ == "__main__":
+    main()
+```
+
+### 预期的打印结果
+
+*由于结果是随机的，每次运行的设备信息都会不同，但输出的格式和结构是固定的。*
+
+```
+[TIME] | INFO     | [UADemo] : --- 1. 获取一个完全随机的设备信息 ---
+[TIME] | INFO     | [UADemo] : 随机抽取的设备品牌: Xiaomi
+[TIME] | INFO     | [UADemo] : 设备市场名称: Xiaomi 13 Pro
+[TIME] | INFO     | [UADemo] : 具体型号: 2210132C
+[TIME] | INFO     | [UADemo] : 开发代号: nuwa
+[TIME] | INFO     | [UADemo] : 
+--- 2. 根据随机设备信息构建一个通用的浏览器UA ---
+[TIME] | INFO     | [UADemo] : 构建的通用UA: Mozilla/5.0 (Linux; Android 13; 2210132C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36
+[TIME] | INFO     | [UADemo] : 
+--- 3. 获取一个指定品牌（华为）的设备信息 ---
+[TIME] | INFO     | [UADemo] : 随机华为设备: HUAWEI Mate 60 Pro (ALN-AL00)
+[TIME] | INFO     | [UADemo] : 
+--- 4. 生成京东App专用User-Agent ---
+[TIME] | INFO     | [UADemo] : 生成的京东主站App UA:
+[TIME] | INFO     | [UADemo] :   - App UA: jdapp;android;12.3.4;;;M/5.0;appBuild/100500;ef/1;ep/%7B%22hdid%22%3A%22JM9F1ywUPwflvMIpYPok0tt5...
+[TIME] | INFO     | [UADemo] :   - OkHttp UA: okhttp/3.12.1;jdmall;android;version/12.3.4;build/100500;
+```

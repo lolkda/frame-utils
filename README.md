@@ -1,4 +1,4 @@
-# Python 高性能异步自动化工具库
+# Python 高性能异步自动化工具库 (终极版文档)
 
 这是一个专为自动化任务设计的Python工具库，具备高性能、异步、可扩展的特点。它内置了强大的HTTP客户端、代理管理、任务调度、设备UA生成等基础功能，并深度集成了 **京东(JD.com) API** 和 **青龙(Qinglong)面板** 的交互能力，是构建复杂自动化流程的理想选择。
 
@@ -77,7 +77,83 @@ export log_level="20"
 
 以下是各核心模块的详细使用方法和代码示例。
 
-### **1. 青龙面板 API (`openApi.py`)**
+### **1. 日志工具 (`logging_utils.py`)**
+
+`logging_utils.py` 提供了一个强大且灵活的日志记录工具 `PrintMethodClass`，专为自动化脚本设计。它不仅能将日志同时输出到控制台和文件中，还支持动态添加上下文信息，使日志追踪和调试变得异常简单。
+
+#### **核心功能**
+
+- **双重输出**: 日志同时打印到控制台和独立的日志文件 (`./log/脚本名/时间戳.log`)。
+- **动态日志格式**: 可以随时向日志前缀中添加或移除上下文信息（如用户名、当前代理状态等），让日志内容更丰富。
+- **环境配置等级**: 通过环境变量 `log_level` 控制日志输出的详细程度 (DEBUG, INFO, WARNING, ERROR)。
+- **自动错误退出**: 在记录 ERROR 级别日志后，可选择自动终止脚本，防止程序在错误状态下继续运行。
+- **自动上下文重置**: 可配置在每次打印日志后自动清除临时添加的上下文信息，保持日志清爽。
+
+#### **使用方法**
+
+##### **基本初始化和日志记录**
+
+最简单的使用方式是直接实例化 `PrintMethodClass` 并调用其方法。
+
+- `info(content)`: 记录普通信息。
+- `warning(content)`: 记录警告。
+- `debug(content)`: 记录用于调试的详细信息（仅当 `log_level` <= 10 时显示）。
+- `error(content, exit=True)`: 记录错误。`exit` 参数默认为 `True`，会在记录后终止脚本。
+
+##### **动态上下文管理 (核心功能)**
+
+这是 `PrintMethodClass` 最强大的功能。您可以使用 `set`, `remove`, 和 `reset` 方法来动态修改单条日志的上下文信息。
+
+- `set(key, value)`: 添加或修改一个上下文信息。
+- `remove(key)`: 移除一个指定的上下文信息。
+- `reset()`: 清除所有临时的上下文信息（不包括初始化时设置的脚本名）。
+
+
+##### **测试Demo**
+```python
+# logging_demo.py
+import asyncio
+from utils.logging_utils import PrintMethodClass
+
+# 1. 初始化日志记录器，可以传入一个默认的脚本名
+log = PrintMethodClass("UserProcessor", auto_reset=False)
+
+async def process_user(user_id, use_proxy):
+    # 2. 为当前任务设置上下文
+    log.set("UserID", user_id)
+    if use_proxy:
+        log.set("Network", "Proxy")
+    
+    log.info("开始处理该用户...")
+    await asyncio.sleep(0.5) 
+    log.info("用户处理完毕。")
+
+    # 3. 手动清除上下文
+    log.reset()
+
+async def main():
+    log.info("脚本开始运行...")
+    log.warning("检测到一个潜在问题，但不影响运行。")
+    log.debug("这是一条非常详细的调试信息。") 
+    
+    # 4. 演示上下文管理
+    await process_user("user-001", use_proxy=False)
+    log.info("------")
+    await process_user("user-007", use_proxy=True)
+    
+    # 5. 演示错误处理
+    try:
+        raise ValueError("示例错误")
+    except ValueError as e:
+        log.error(f"捕获到一个错误: {e}", exit=False)
+    
+    log.info("脚本运行结束。")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### **2. 青龙面板 API (`openApi.py`)**
 
 `openApi.py` 模块提供了与青龙面板进行交互的全部能力，核心是 `openApiCommonMethod` (推荐) 和 `openApiMethod` (底层) 两个类。
 
@@ -92,78 +168,89 @@ export log_level="20"
 
 此类提供了最常用、最便捷的方法，隐藏了底层的API细节。
 
-##### **`get_cookie(ContainerName, name)`**
-快速获取指定面板中某个环境变量的所有值。
-- `ContainerName`: 面板前缀，如 "JD"。
-- `name`: 环境变量名，如 "JD_COOKIE"。
-- **返回**: 一个包含所有同名环境变量值的列表 `List[str]`。
+- **`get_cookie(ContainerName, name)`**:
+  快速获取指定面板中某个环境变量的所有值。返回 `List[str]`。
 
+- **`search_envs(keyword)`**:
+  根据关键词模糊搜索环境变量。返回包含环境变量信息字典的列表 `List[Dict]`。
+
+- **`update_envs(name, value, remarks, add_env, keyword)`**:
+  更新或新增一个环境变量。它会先通过 `keyword` 搜索，如果找到就更新，找不到且 `add_env=True` 则新增。
+
+- **`disable_envs(id) / EnableEnvs(id)`**:
+  禁用或启用一个或多个环境变量。`id` 可以是单个 `int` 或 `List[int]`。
+
+- **`search_task(keyword)`**:
+  根据关键词搜索定时任务。返回包含任务信息的字典。
+
+- **`run_crons_task(id)`**:
+  运行一个或多个定时任务。`id` 可以是单个 `str` 或 `List[str]`。
+
+##### **测试Demo**
 ```python
-cookies = await ql_api.get_cookie("JD", "JD_COOKIE")
-print(f"获取到 {len(cookies)} 个JD_COOKIE。")
-```
+# openapi_demo.py
+import asyncio
+from utils.openApi import openApiCommonMethod
+from utils.logging_utils import PrintMethodClass
 
-##### **`search_envs(keyword)`**
-根据关键词模糊搜索环境变量。
-- `keyword`: 搜索的关键词。
-- **返回**: 包含环境变量信息字典的列表 `List[Dict]`。
+log = PrintMethodClass("QL_Demo")
 
-##### **`update_envs(name, value, remarks, add_env, keyword)`**
-更新或新增一个环境变量。它会先通过 `keyword` 搜索，如果找到就更新，找不到且 `add_env=True` 则新增。
-- `name`, `value`, `remarks`: 环境变量的名称、值和备注。
-- `add_env`: (可选, `bool`) 如果找不到是否新增。
-- `keyword`: 用于定位要更新的环境变量的关键词。
+async def main():
+    ql_api = openApiCommonMethod()
+    
+    # --- 1. 指定要操作的面板 (config.sh中的 "JD" 前缀) ---
+    ql_api.openApi_Use = "JD"
+    log.info(f"当前操作面板: {ql_api.openApi_Use}")
 
-```python
-# 搜索并更新
-await ql_api.update_envs(
-    name="MY_TEST_VAR",
-    value="new_value_123",
-    remarks="由脚本更新",
-    keyword="MY_TEST_VAR"
-)
-print("环境变量 MY_TEST_VAR 已更新。")
+    # --- 2. 环境变量操作 ---
+    var_name = "MY_DEMO_VARIABLE"
+    log.info(f"准备操作环境变量: {var_name}")
 
-# 如果不存在则新增
-await ql_api.update_envs(
-    name="NEW_VAR",
-    value="hello_world",
-    remarks="新变量",
-    add_env=True,
-    keyword="NEW_VAR"
-)
-print("环境变量 NEW_VAR 已新增。")
-```
+    # 新增或更新
+    await ql_api.update_envs(
+        name=var_name,
+        value="initial_value",
+        remarks="这是一个测试变量",
+        add_env=True, # 如果不存在，则新增
+        keyword=var_name
+    )
+    log.info(f"变量 '{var_name}' 已设置为 'initial_value'")
 
-##### **`disable_envs(id) / EnableEnvs(id)`**
-禁用或启用一个或多个环境变量。
-- `id`: 单个环境变量ID (`int`) 或 ID列表 (`List[int]`)。
+    # 搜索并获取ID
+    envs = await ql_api.search_envs(var_name)
+    if not envs:
+        log.error("未能找到刚刚创建的变量，脚本结束。")
+        return
+    
+    env_id = envs[0]['id']
+    log.info(f"找到变量 ID: {env_id}")
 
-```python
-# 假设通过 search_envs 得到了ID为 123
-env_id_to_disable = 123
-await ql_api.disable_envs(env_id_to_disable)
-print(f"ID为 {env_id_to_disable} 的环境变量已被禁用。")
+    # 禁用
+    await ql_api.disable_envs(env_id)
+    log.info(f"变量 ID:{env_id} 已禁用。")
+    await asyncio.sleep(1)
 
-await ql_api.EnableEnvs([124, 125])
-print("ID为 124 和 125 的环境变量已被启用。")
-```
+    # 启用
+    await ql_api.EnableEnvs(env_id)
+    log.info(f"变量 ID:{env_id} 已启用。")
 
-##### **`search_task(keyword)`**
-根据关键词搜索定时任务。
-- `keyword`: 搜索的关键词。
-- **返回**: 包含任务信息的字典。
+    # --- 3. 任务操作 ---
+    task_keyword = "京东签到" # 请替换为您面板中存在的任务关键词
+    log.info(f"\n准备操作任务，关键词: '{task_keyword}'")
+    tasks_res = await ql_api.search_task(task_keyword)
+    
+    if not tasks_res or not tasks_res.get('data'):
+        log.warning(f"未找到包含 '{task_keyword}' 的任务，任务操作部分跳过。")
+    else:
+        task = tasks_res['data'][0]
+        log.info(f"找到任务: '{task['name']}' (ID: {task['id']})")
+        
+        # 运行任务
+        await ql_api.run_crons_task(task['id'])
+        log.info("任务已触发运行。")
 
-##### **`run_crons_task(id)`**
-运行一个或多个定时任务。
-- `id`: 单个任务ID (`str`) 或 ID列表 (`List[str]`)。
-
-```python
-tasks_result = await ql_api.search_task("京东签到")
-if tasks_result and tasks_result.get('data'):
-    task_id = tasks_result['data'][0]['id']
-    await ql_api.run_crons_task(task_id)
-    print(f"任务 '京东签到' (ID: {task_id}) 已触发运行。")
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
@@ -171,215 +258,384 @@ if tasks_result and tasks_result.get('data'):
 
 此类提供了对青龙 OpenAPI 端点的直接 `GET/PUT/POST/DELETE` 访问，适合需要高度自定义请求的场景。
 
-##### **`get_openApi(query, params=None)`**
-执行 `GET` 请求。
-- `query`: API路径，如 `'envs'`, `'crons'`, `'configs/config.sh'`。
-- `params`: (可选) URL查询参数字典，如 `{'searchValue': 'JD_COOKIE'}`。
+- **`get_openApi(query, params=None)`**: 执行 `GET` 请求。
+- **`put_openApi(query, json)`**: 执行 `PUT` 请求，通常用于更新或执行动作。
+- **`post_openApi(query, json)`**: 执行 `POST` 请求，通常用于创建新资源。
+- **`delete_openApi(query, json)`**: 执行 `DELETE` 请求，用于删除资源。
 
+##### **测试Demo**
 ```python
-# 获取所有环境变量的原始数据
-all_envs = await ql_api.get_openApi('envs')
-# 获取cron任务列表的第一页（5个）
-crons_page1 = await ql_api.get_openApi('crons', params={'page': 1, 'size': 5})
-```
-
-##### **`put_openApi(query, json)`**
-执行 `PUT` 请求，通常用于更新或执行动作。
-- `query`: API路径，如 `'envs/enable'`, `'crons/run'`, `'envs'`。
-- `json`: 发送的JSON body。
-
-```python
-# 启用ID为 100 和 101 的环境变量
-await ql_api.put_openApi('envs/enable', [100, 101])
-
-# 更新ID为 102 的环境变量
-await ql_api.put_openApi('envs', {"id": 102, "name": "VAR_NAME", "value": "new_val"})
-```
-
-##### **`post_openApi(query, json)`**
-执行 `POST` 请求，通常用于创建新资源。
-- `query`: API路径，如 `'envs'`, `'configs/save'`。
-- `json`: 发送的JSON body。
-
-```python
-# 新增一个环境变量
-new_env_data = [{"name": "API_KEY", "value": "xyz-123", "remarks": "API密钥"}]
-await ql_api.post_openApi('envs', new_env_data)
-
-# 保存配置文件
-config_content = "export MY_VAR='hello'"
-await ql_api.post_openApi('configs/save', {"name": "config.sh", "content": config_content})
-```
-
-##### **`delete_openApi(query, json)`**
-执行 `DELETE` 请求，用于删除资源。
-- `query`: API路径，如 `'envs'`。
-- `json`: 包含要删除资源ID的列表。
-
-```python
-# 删除ID为 200 的环境变量
-await ql_api.delete_openApi('envs', [200])
-```
-
-### **2. 日志工具 (`logging_utils.py`)**
-
-`logging_utils.py` 提供了一个强大且灵活的日志记录工具 `PrintMethodClass`。
-
-#### **核心功能**
-
-- **双重输出**: 日志同时打印到控制台和独立的日志文件 (`./log/脚本名/时间戳.log`)。
-- **动态日志格式**: 可以随时向日志前缀中添加或移除上下文信息。
-- **环境配置等级**: 通过环境变量 `log_level` 控制日志输出的详细程度。
-
-#### **使用方法**
-
-```python
+# openapi_low_level_demo.py
 import asyncio
+from utils.openApi import openApiMethod
 from utils.logging_utils import PrintMethodClass
 
-log = PrintMethodClass("MyAwesomeScript")
+log = PrintMethodClass("QL_LowLevel_Demo")
 
 async def main():
-    log.info("脚本开始运行...")
-    log.warning("检测到一个潜在问题。")
-    
-    # 动态添加上下文信息
-    log.set("UserID", "user-001")
-    log.info("开始处理用户...")
-    log.reset() # 重置上下文
-    
-    log.error("发生严重错误！", exit=False) # exit=False 表示不退出程序
-    log.info("脚本运行结束。")
+    ql_api = openApiMethod()
+    ql_api.openApi_Use = "JD"
 
-asyncio.run(main())
+    # 1. GET: 获取cron任务列表的第一页（5个）
+    crons_page = await ql_api.get_openApi('crons', params={'page': 1, 'size': 5})
+    log.info(f"获取到 {len(crons_page.get('data', []))} 个任务。")
+
+    # 2. POST: 新增一个环境变量
+    new_env = [{"name": "LOW_LEVEL_VAR", "value": "test", "remarks": "底层接口测试"}]
+    await ql_api.post_openApi('envs', new_env)
+    log.info("通过底层接口新增了一个环境变量。")
+
+    # 3. PUT: 更新环境变量
+    envs = await ql_api.get_openApi('envs', params={'searchValue': 'LOW_LEVEL_VAR'})
+    if envs and envs.get('data'):
+        env_to_update = envs['data'][0]
+        env_to_update['value'] = 'updated_value'
+        await ql_api.put_openApi('envs', env_to_update)
+        log.info("环境变量已更新。")
+
+        # 4. DELETE: 删除环境变量
+        await ql_api.delete_openApi('envs', [env_to_update['id']])
+        log.info("环境变量已删除。")
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
----
 ### **3. 异步并发控制器 (`concurrency_utils.py`)**
 
-`RunMethod` 类用于以指定的并发数批量执行异步任务。
+`concurrency_utils` 模块提供了强大的工具来管理和执行大量异步任务，核心是 `RunMethod` 类。
 
 #### `RunMethod.ReqConcRun`
-最常用的并发运行器。
+这是最常用、最灵活的并发运行器。它接收一个 `ReqConcParam` 对象，按指定的并发数分批执行任务，并可在每批任务间设置等待时间。
 
+- **`ReqConcParam(func, task, thread, wait, **kwargs)`**:
+  - `func`: 要并发执行的异步函数。
+  - `task`: 一个可迭代对象（如列表），其中每个元素都将作为 `func` 的第一个参数。
+  - `thread`: 最大并发数。
+  - `wait`: (可选) 每批任务执行完毕后的等待秒数。
+  - `**kwargs`: (可选) 其他需要传递给 `func` 的固定参数。
+- **`ReqConcResult`**: 迭代 `ReqConcRun` 返回的结果，每个元素都是此对象，包含 `.result` (函数的返回值) 和 `.task` (原始任务项)。
+
+##### **测试Demo**
 ```python
+# concurrency_demo.py
 import asyncio
 from utils.concurrency_utils import RunMethod, ReqConcParam
 from utils.logging_utils import PrintMethodClass
 
 log = PrintMethodClass("ConcurrencyDemo")
 
-async def worker_task(item: dict):
-    log.info(f"任务 {item['id']} 开始...")
-    await asyncio.sleep(item['delay'])
-    log.info(f"任务 {item['id']} 完成！")
-    return {"id": item['id'], "status": "ok"}
+async def worker_task(item: dict, extra_param: str):
+    task_id = item['id']
+    delay = item['delay']
+    log.info(f"任务 {task_id} ({extra_param}) 开始，预计耗时 {delay} 秒...")
+    await asyncio.sleep(delay)
+    log.info(f"任务 {task_id} 完成！")
+    return {"id": task_id, "status": "ok"}
 
 async def main():
     tasks_to_run = [
         {'id': 1, 'delay': 2}, {'id': 2, 'delay': 1}, {'id': 3, 'delay': 3},
         {'id': 4, 'delay': 1}, {'id': 5, 'delay': 2}, {'id': 6, 'delay': 1.5},
     ]
-
-    conc_params = ReqConcParam(func=worker_task, task=tasks_to_run, thread=3, wait=2)
-
+    conc_params = ReqConcParam(
+        func=worker_task,
+        task=tasks_to_run,
+        thread=3,  # 同时只运行3个任务
+        wait=2,    # 每批任务执行完后等待2秒
+        extra_param="FixedValue"
+    )
     async for batch_result in RunMethod.ReqConcRun(conc_params):
         log.info(f"--- 一批任务执行完毕 ---")
         for res in batch_result:
-            log.info(f"结果: {res.result}")
+            log.info(f"结果: {res.result}, 原始任务: {res.task}")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
+
 ---
 ### **4. 异步进程管理器 (`script_executor.py`)**
 
 `ProcessManager` 类能够以非阻塞的方式启动、监控和管理外部脚本或系统命令。
 
+#### **核心方法**
+- **`run_script(script_path, run_method='auto', args=[], callback=None)`**:
+  异步执行一个脚本文件。
+- **`run_command(command, callback=None)`**:
+  异步执行一个系统命令。
+- **`wait_for_process(pid, timeout=None)`**:
+  等待指定`pid`的进程结束并返回结果。
+- **`kill_process(pid)`**:
+  终止一个正在运行的进程。
+
+#### **测试Demo**
 ```python
+# executor_demo.py
 import asyncio
-from utils.script_executor import ProcessManager
+from utils.script_executor import ProcessManager, ProcessInfo
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("ExecutorDemo")
+
+with open("my_test_script.py", "w") as f:
+    f.write('import time, sys\nprint(f"脚本运行中，参数: {sys.argv[1:]}")\ntime.sleep(2)\nprint("脚本结束")')
+
+def my_callback(info: ProcessInfo):
+    log.info(f"--- 回调触发 (PID: {info.pid}) ---")
+    log.info(f"状态: {info.status}, 返回码: {info.return_code}")
 
 async def main():
     manager = ProcessManager()
-    pid = await manager.run_command(['echo', 'Hello from subprocess!'])
+    
+    log.info("准备运行 Python 脚本...")
+    pid = await manager.run_script(
+        'my_test_script.py', 
+        args=['arg1'],
+        callback=my_callback
+    )
+    log.info(f"脚本已启动，PID: {pid}")
+    
+    log.info("主程序不阻塞，等待1秒...")
+    await asyncio.sleep(1)
+    
+    log.info(f"等待进程 {pid} 结束...")
     result_info = await manager.wait_for_process(pid)
-    print(f"命令输出:\n{result_info.stdout.strip()}")
+    
+    log.info("\n--- 主程序获取到最终结果 ---")
+    log.info(f"脚本输出:\n{result_info.stdout.strip()}")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
 ### **5. 异步安全文件读写 (`async_file_utils.py`)**
 
-`FileMethod` 类提供了一系列带锁的异步文件操作方法。
+`FileMethod` 类提供了一系列带锁的异步文件操作方法，确保在并发环境下的文件写入安全。
 
+#### **核心方法**
+- **`read_str(file_name)` / `write_str(file_name, data, mode)`**: 读写普通文本。
+- **`read_json(file_name)` / `write_json(file_name, updata, newBuild)`**: 读写JSON。
+- **`write_image(file_name, image)`**: 写入二进制图片数据。
+
+#### **测试Demo**
 ```python
+# file_demo.py
 import asyncio
+import os
 from utils.async_file_utils import FileMethod
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("FileDemo")
+JSON_FILE = "demo_data.json"
+TEXT_FILE = "demo_log.txt"
 
 async def main():
-    file_path = "my_data.json"
-    my_dict = {"name": "Test", "version": 1}
-    await FileMethod.write_json(file_path, my_dict, newBuild=True)
-    read_data = await FileMethod.read_json(file_path)
-    print(f"读取到的JSON: {read_data}")
+    # --- 1. JSON 操作 ---
+    log.info(f"测试JSON文件操作: {JSON_FILE}")
+    
+    # newBuild=True 创建新文件
+    initial_data = {"users": ["Alice"], "count": 1}
+    await FileMethod.write_json(JSON_FILE, initial_data, newBuild=True)
+    log.info(f"已创建JSON文件: {await FileMethod.read_str(JSON_FILE)}")
+    
+    # 更新字典
+    await FileMethod.write_json(JSON_FILE, {"count": 2, "status": "active"})
+    log.info(f"更新字典后: {await FileMethod.read_str(JSON_FILE)}")
+    
+    # 追加列表
+    await FileMethod.write_json(JSON_FILE, ["Bob", "Charlie"], "users")
+    log.info(f"追加列表后: {await FileMethod.read_str(JSON_FILE)}")
+    
+    # --- 2. 文本文件操作 ---
+    log.info(f"\n测试文本文件操作: {TEXT_FILE}")
+    await FileMethod.write_str(TEXT_FILE, "日志开始\n", mode="w") # 覆盖写
+    await FileMethod.write_str(TEXT_FILE, "第一条记录\n", mode="a") # 追加写
+    
+    content = await FileMethod.read_str(TEXT_FILE)
+    log.info(f"读取到的文本内容:\n{content}")
+    
+    # 清理测试文件
+    if os.path.exists(JSON_FILE): os.remove(JSON_FILE)
+    if os.path.exists(TEXT_FILE): os.remove(TEXT_FILE)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
 ### **6. 环境配置读取 (`env_utils.py`)**
 
-`EnvMethod` 类是读取项目配置的核心。
+`EnvMethod` 类是读取项目配置的核心，提供了比 `os.getenv` 更强大的功能。
 
+#### **核心方法**
+- **`readEnv(key, default=None, codeInt=False, codeList=False)`**:
+  智能读取环境变量，并能根据需要进行类型转换。
+- **`checkEnv(obj_self, config, err_exit=True)`**:
+  根据配置清单，结构化地加载环境变量到对象的属性中。
+- **`load_config_from_env(obj_self, config_obj, err_exit=True)`**:
+  更优雅的配置加载方式，通过类型提示和映射表自动加载。
+
+#### **测试Demo**
 ```python
+# env_demo.py
+import os
+from typing import List
 from utils.env_utils import EnvMethod
-# 假设 config.sh 中有: export INT_VAR="123"
-int_val = EnvMethod.readEnv("INT_VAR", 0, codeInt=True)
-print(f"读取到的整数: {int_val}")
-```
+from utils.logging_utils import PrintMethodClass
 
+log = PrintMethodClass("EnvDemo")
+
+# 模拟设置环境变量
+os.environ['DEMO_STR'] = "hello world"
+os.environ['DEMO_INT'] = "123"
+os.environ['DEMO_LIST'] = "a|b|c"
+os.environ['DEMO_JSON_LIST'] = '[1, 2, 3]'
+os.environ['DEMO_BOOL'] = 'true'
+
+def demo_read_env():
+    log.info("--- 测试 readEnv ---")
+    str_val = EnvMethod.readEnv("DEMO_STR", "default")
+    int_val = EnvMethod.readEnv("DEMO_INT", 0, codeInt=True)
+    list_val = EnvMethod.readEnv("DEMO_LIST", [])
+    json_list_val = EnvMethod.readEnv("DEMO_JSON_LIST", [])
+    bool_val = EnvMethod.readEnv("DEMO_BOOL", False)
+    
+    log.info(f"字符串: {str_val} (类型: {type(str_val)})")
+    log.info(f"整数: {int_val} (类型: {type(int_val)})")
+    log.info(f"列表: {list_val} (类型: {type(list_val)})")
+    log.info(f"JSON列表: {json_list_val} (类型: {type(json_list_val)})")
+    log.info(f"布尔值: {bool_val} (类型: {type(bool_val)})")
+
+def demo_load_config():
+    log.info("\n--- 测试 load_config_from_env ---")
+    class AppConfig:
+        env_map = {
+            'str_setting': 'DEMO_STR',
+            'int_setting': 'DEMO_INT',
+            'list_setting': 'DEMO_LIST'
+        }
+        str_setting: str = "default"
+        int_setting: int = 0
+        list_setting: List[str] = []
+
+    class MyApp:
+        def __init__(self):
+            EnvMethod.load_config_from_env(self, AppConfig())
+    
+    app = MyApp()
+    log.info(f"App str_setting: {app.str_setting}")
+    log.info(f"App int_setting: {app.int_setting}")
+    log.info(f"App list_setting: {app.list_setting}")
+    
+demo_read_env()
+demo_load_config()
+```
 ---
 ### **7. HTTP 客户端 (`http_client.py`)**
 
 `AsyncRequestManager` 是一个功能强大的异步HTTP请求器。
 
+#### `async_curl_requests`
+这是发送所有请求的核心方法，通过一个字典来配置请求。
+
+- **`param` 字典常用键**:
+  - `method`: `GET`, `POST`, `PUT`, `DELETE` 等。
+  - `url`: 请求的URL。
+  - `params`: (可选) `GET`请求的查询参数字典。
+  - `json`: (可选) `POST`请求的JSON body。
+  - `data`: (可选) `POST`请求的表单数据。
+  - `headers`: (可选) 请求头字典。
+  - `cookies`: (可选) Cookie字典。
+  - `proxy`: (可选) `True` 或代理地址字符串，`True` 表示使用配置的代理池。
+  - `proxy_retry`: (可选) `True` 表示在请求失败时自动切换成代理重试。
+
+#### **测试Demo**
 ```python
+# http_demo.py
 import asyncio
 from utils.http_client import AsyncRequestManager
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("HttpDemo")
 
 async def main():
     req = AsyncRequestManager()
-    params = {"method": "GET", "url": "[https://api.ipify.org?format=json](https://api.ipify.org?format=json)"}
-    response = await req.async_curl_requests(params, "GetMyIP")
-    print(f"我的IP是: {response.text}")
 
-asyncio.run(main())
+    # 1. GET 请求
+    get_params = {"method": "GET", "url": "[https://httpbin.org/get?a=1](https://httpbin.org/get?a=1)", "proxy": False}
+    res_get = await req.async_curl_requests(get_params, "TestGET")
+    log.info(f"GET请求状态码: {res_get.status}")
+
+    # 2. POST 请求
+    post_params = {
+        "method": "POST",
+        "url": "[https://httpbin.org/post](https://httpbin.org/post)",
+        "json": {"user": "test", "id": 123},
+        "headers": {"X-Custom-Header": "MyValue"}
+    }
+    res_post = await req.async_curl_requests(post_params, "TestPOST")
+    if res_post.status == 200:
+        log.info(f"POST请求成功，返回的JSON中包含我们的Header: {'X-Custom-Header' in res_post.text}")
+        
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
 ### **8. 任务调度器 (`time_scheduler.py`)**
 
-`ServerTimeScheduler` 可用于需要精确时间的任务场景。
+`ServerTimeScheduler` 可用于需要精确时间的任务场景，如整点秒杀。
 
+#### **核心方法**
+- **`ServerTimeScheduler(func)`**:
+  初始化调度器，`func` 是一个用于获取服务器时间（13位毫秒时间戳）的异步函数。
+- **`wait_until(hour, minute, second)`**:
+  异步等待直到下一个指定的时:分:秒。
+- **`sleep_until_next_active_period(active_hours)`**:
+  如果当前不在活跃时间段内，则休眠直到下一个活跃时段开始。`active_hours` 格式为 `["2-5", "8"]`。
+
+#### **测试Demo**
 ```python
+# scheduler_demo.py
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from utils.time_scheduler import ServerTimeScheduler
 from utils.jd_api import JdApiClient
+from utils.logging_utils import PrintMethodClass
 
+log = PrintMethodClass("SchedulerDemo")
 jd_client = JdApiClient()
-time_sync_func = jd_client.Jd_Time
+
+async def my_timed_task():
+    log.info(f"精确时间任务在 {datetime.now()} 执行!")
 
 async def main():
-    scheduler = ServerTimeScheduler(func=time_sync_func)
-    print("等待下一个整点分钟的到来...")
-    now = datetime.fromtimestamp(await scheduler.sync_time() / 1000)
-    next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
-    await scheduler.wait_until(hour=next_minute.hour, minute=next_minute.minute)
-    print(f"精确时间到达: {datetime.now()}")
+    # 使用京东时间作为同步源
+    scheduler = ServerTimeScheduler(func=jd_client.Jd_Time)
+    
+    # 1. 等待到5秒后
+    now = datetime.now()
+    target_time = now + timedelta(seconds=5)
+    log.info(f"当前时间: {now}, 准备等待到 {target_time.strftime('%H:%M:%S')}")
+    await scheduler.wait_until(
+        hour=target_time.hour, 
+        minute=target_time.minute, 
+        second=target_time.second
+    )
+    await my_timed_task()
 
-asyncio.run(main())
+    # 2. 等待到下一个活跃期
+    log.info("\n测试活跃期等待... (假设活跃期为1小时后)")
+    next_hour = (now + timedelta(hours=1)).hour
+    await scheduler.sleep_until_next_active_period(active_hours=[str(next_hour)])
+    log.info(f"已进入活跃期 {next_hour}:00！")
+
+if __name__ == "__main__":
+    # 这个demo会等待较长时间，仅作演示
+    # asyncio.run(main())
+    log.info("调度器Demo演示完毕。")
 ```
 
 ---
@@ -387,31 +643,83 @@ asyncio.run(main())
 
 轻松生成各种真实的移动设备User-Agent。
 
-```python
-from utils.user_agent_generator import PhoneModel
-random_phone = PhoneModel.get_phone_models(brand="Xiaomi")
-print(f"随机小米设备: {random_phone.name} ({random_phone.model_number})")
-```
+- `PhoneModel.get_phone_models(brand=None)`: 获取一个随机设备信息。
+- `JdUserAgentGenerator(clientVersion, build)`: 专门生成京东App的UA。
 
+#### **测试Demo**
+```python
+# ua_demo.py
+from utils.user_agent_generator import PhoneModel, JdUserAgentGenerator
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("UADemo")
+
+def main():
+    # 1. 获取随机设备信息
+    random_phone = PhoneModel.get_phone_models()
+    log.info(f"随机设备: {random_phone.brand} {random_phone.name} ({random_phone.model_number})")
+    
+    # 2. 获取指定品牌设备
+    apple_phone = PhoneModel.get_phone_models(brand="Apple")
+    log.info(f"随机Apple设备: {apple_phone.name} ({apple_phone.code_name})")
+    
+    # 3. 生成京东专用UA
+    jd_ua_gen = JdUserAgentGenerator(clientVersion="12.3.4", build="100500")
+    jd_ua_pair = jd_ua_gen.jd_app_ua(name="jd")
+    log.info(f"京东App主UA: {jd_ua_pair.app}")
+    log.info(f"京东App OkHttp UA: {jd_ua_pair.okhttp}")
+    
+if __name__ == "__main__":
+    main()
+```
 ---
 ### **10. 通知发送 (`sendNotify.py`)**
 
 `SendMethod` 负责加载所有启用的推送插件并发送消息。
 
+- `SendParam(title, content, uids)`: 用于封装通知内容的标准数据类。
+- `SendMethod.send_all(param)`: 向所有启用的渠道广播消息。
+- `SendMethod.send_to(sender_class, param)`: 向指定的单个渠道发送消息。
+
+#### **测试Demo**
 ```python
+# notify_demo.py
 import asyncio
 from datetime import datetime
 from utils.sendNotify import SendMethod, SendParam
+from utils.logging_utils import PrintMethodClass
+
+# 假设你已经创建了一个Telegram推送插件
+# from function.push_plugins.telegram import TelegramSender
+
+log = PrintMethodClass("NotifyDemo")
 
 async def main():
     notify = SendMethod()
-    title = "任务报告"
-    content = f"所有任务已于 {datetime.now()} 完成。"
-    params = SendParam(title=title, content=content)
-    await notify.send_all(params)
-    print("通知已发送。")
+    
+    if not notify.senders:
+        log.warning("未配置或启用任何推送器，无法发送通知。")
+        return
 
-asyncio.run(main())
+    title = "自动化任务每日报告"
+    content_lines = [
+        "✅ 任务A: 成功",
+        "❌ 任务B: 失败 - Cookie失效",
+        f"🕒 报告时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    ]
+    
+    params = SendParam(title=title, content=content_lines)
+    
+    log.info("准备向所有启用的渠道发送通知...")
+    await notify.send_all(params)
+
+    # 演示单点发送 (如果TelegramSender存在且启用)
+    # if TelegramSender in notify.senders:
+    #     log.info("准备向Telegram单独发送...")
+    #     await notify.send_to(TelegramSender, SendParam(title="TG专属消息", content="Hello!"))
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ---
@@ -419,33 +727,14 @@ asyncio.run(main())
 
 本工具库的通知系统是插件化的，添加新的推送方式非常简单。
 
-1.  在 `function/push_plugins/` 目录下创建一个新的Python文件，例如 `my_pusher.py`。
+1.  在 `function/push_plugins/` 目录下创建一个新的Python文件。
 2.  在该文件中，创建一个继承自 `BaseSender` 的类。
 3.  实现 `is_enabled` 和 `send` 两个抽象方法。
-
-**示例 (`function/push_plugins/my_pusher.py`):**
-
-```python
-from utils.sendNotify import BaseSender
-from utils.env_utils import EnvMethod
-import asyncio
-
-class MyPusherSender(BaseSender):
-    def __init__(self):
-        super().__init__()
-        self.is_open = EnvMethod.readEnv("MY_PUSHER_ISOPEN", "false").lower() == "true"
-        self.api_key = EnvMethod.readEnv("MY_PUSHER_APIKEY")
-
-    def is_enabled(self) -> bool:
-        return self.is_open and bool(self.api_key)
-
-    async def send(self, title: str, content: str, **kwargs) -> bool:
-        if not self.is_enabled():
-            return False
-        # ... 实现你的发送逻辑 ...
-        print(f"[MyPusher] 正在发送: {title}")
-        return True
-```
-
-4.  在 `env/config.sh` 中添加对应的环境变量 (`MY_PUSHER_ISOPEN`, `MY_PUSHER_APIKEY`)。
+4.  在 `env/config.sh` 中添加对应的环境变量。
 5.  完成！`SendMethod` 会自动加载并使用你的新插件。
+
+---
+
+## 许可证
+
+本项目采用 [MIT](https://opensource.org/licenses/MIT) 许可证。

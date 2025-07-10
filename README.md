@@ -8,7 +8,7 @@
 
 ## 核心功能 ✨
 
-- **高性能HTTP客户端**: 基于 `aiohttp` 实现，具备自动重试和灵活的代理管理功能。
+- **高性能HTTP客户端**: 基于 `curl_cffi` 实现，支持HTTP/2、TLS指纹伪装，具备自动重试和灵活的代理管理功能。
 - **青龙面板无缝对接**: 强大的青龙OpenAPI客户端，可轻松通过代码管理面板中的环境变量、定时任务、配置文件等。
 - **异步进程管理**: 非阻塞地执行和监控外部脚本（如 `.py`, `.js`, `.sh`），获取实时输出，并支持优雅地终止进程。
 - **高级并发控制**: 提供易于使用的并发运行器，能够以指定并发数（线程）分批执行大量异步任务，并控制任务间的等待间隔。
@@ -18,6 +18,7 @@
 - **强大的环境与配置管理**: 简化了环境变量的读取和类型转换，支持从 `config.sh` 文件加载配置。
 - **丰富的User-Agent生成器**: 可生成覆盖苹果、华为、小米等主流品牌的上千种真实移动设备User-Agent，增强请求的模拟度。
 - **结构化的日志系统**: 提供清晰、可定制的日志输出，支持按脚本和日期生成日志文件，便于调试和追踪。
+
 
 ---
 
@@ -80,7 +81,140 @@ export log_level="20"
 
 以下是各核心模块的详细使用方法和代码示例。
 
-### **1. 异步并发控制器 (`concurrency_utils.py`)**
+### **1. 日志工具 (`logging_utils.py`)**
+
+`logging_utils.py` 提供了一个强大且灵活的日志记录工具 `PrintMethodClass`，专为自动化脚本设计。它不仅能将日志同时输出到控制台和文件中，还支持动态添加上下文信息，使日志追踪和调试变得异常简单。
+
+#### **核心功能**
+
+- **双重输出**: 日志同时打印到控制台和独立的日志文件 (`./log/脚本名/时间戳.log`)。
+- **动态日志格式**: 可以随时向日志前缀中添加或移除上下文信息（如用户名、当前代理状态等），让日志内容更丰富。
+- **环境配置等级**: 通过环境变量 `log_level` 控制日志输出的详细程度 (DEBUG, INFO, WARNING, ERROR)。
+- **自动错误退出**: 在记录 ERROR 级别日志后，可选择自动终止脚本，防止程序在错误状态下继续运行。
+- **自动上下文重置**: 可配置在每次打印日志后自动清除临时添加的上下文信息，保持日志清爽。
+
+#### **使用方法**
+
+##### **基本初始化和日志记录**
+
+最简单的使用方式是直接实例化 `PrintMethodClass` 并调用其方法。
+
+- `info(content)`: 记录普通信息。
+- `warning(content)`: 记录警告。
+- `debug(content)`: 记录用于调试的详细信息（仅当 `log_level` <= 10 时显示）。
+- `error(content, exit=True)`: 记录错误。`exit` 参数默认为 `True`，会在记录后终止脚本。
+
+```python
+import asyncio
+from utils.logging_utils import PrintMethodClass
+
+# 1. 初始化日志记录器，可以传入一个默认的脚本名
+log = PrintMethodClass("MyAwesomeScript")
+
+async def main():
+    log.info("脚本开始运行...")
+    log.warning("检测到一个潜在问题，但不影响运行。")
+    log.debug("这是一条非常详细的调试信息。") # 默认不会显示
+    
+    try:
+        # 模拟一个可能出错的操作
+        raise ValueError("示例错误")
+    except ValueError as e:
+        # 记录错误，但程序不会退出，因为 exit=False
+        log.error(f"捕获到一个错误: {e}", exit=False)
+    
+    log.info("脚本运行结束。")
+
+# 运行
+asyncio.run(main())
+```
+**输出示例:**
+```
+18:45:01 | INFO     | [MyAwesomeScript] : 脚本开始运行...
+18:45:01 | WARNING  | [MyAwesomeScript] : 检测到一个潜在问题，但不影响运行。
+18:45:01 | ERROR    | [MyAwesomeScript] : 捕获到一个错误: 示例错误
+18:45:01 | INFO     | [MyAwesomeScript] : 脚本运行结束。
+```
+
+##### **动态上下文管理 (核心功能)**
+
+这是 `PrintMethodClass` 最强大的功能。您可以使用 `set`, `remove`, 和 `reset` 方法来动态修改单条日志的上下文信息。
+
+- `set(key, value)`: 添加或修改一个上下文信息。
+- `remove(key)`: 移除一个指定的上下文信息。
+- `reset()`: 清除所有临时的上下文信息（不包括初始化时设置的脚本名）。
+
+```python
+import asyncio
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("UserProcessor")
+
+async def process_user(user_id, use_proxy):
+    # 为当前任务设置上下文
+    log.set("UserID", user_id)
+    if use_proxy:
+        log.set("Network", "Proxy")
+
+    log.info("开始处理该用户...")
+    await asyncio.sleep(1) # 模拟操作
+    log.info("用户处理完毕。")
+
+    # 默认情况下，每次调用log方法后，上下文会自动重置。
+    # 如果初始化时设置了 auto_reset=False，则需要手动调用 log.reset()
+
+async def main():
+    await process_user("user-001", use_proxy=False)
+    # 此时上下文已自动重置
+    log.info("------")
+    await process_user("user-007", use_proxy=True)
+
+# 运行
+asyncio.run(main())
+```
+
+**输出示例:**
+```
+18:45:05 | INFO     | [UserProcessor] | [UserID: user-001] : 开始处理该用户...
+18:45:06 | INFO     | [UserProcessor] | [UserID: user-001] : 用户处理完毕。
+18:45:06 | INFO     | [UserProcessor] : ------
+18:45:06 | INFO     | [UserProcessor] | [UserID: user-007] | [Network: Proxy] : 开始处理该用户...
+18:45:07 | INFO     | [UserProcessor] | [UserID: user-007] | [Network: Proxy] : 用户处理完毕。
+```
+
+##### **控制上下文的自动重置**
+
+在初始化 `PrintMethodClass` 时，可以通过 `auto_reset=False` 参数控制上下文是否在每次打印后自动清除。
+
+```python
+import asyncio
+from utils.logging_utils import PrintMethodClass
+
+# auto_reset=False 表示上下文会一直保留，直到手动清除
+log = PrintMethodClass("DataBatch", auto_reset=False)
+
+async def main():
+    log.set("BatchID", "batch-9527")
+    
+    log.info("开始处理批次...") # 输出: [DataBatch] | [BatchID: batch-9527] : 开始处理批次...
+    
+    # 因为 auto_reset=False，所以 BatchID 这个上下文信息会保留
+    log.info("正在处理项目A...") # 输出: [DataBatch] | [BatchID: batch-9527] : 正在处理项目A...
+    
+    log.set("ItemID", "item-01")
+    log.info("处理细节...") # 输出: [DataBatch] | [BatchID: batch-9527] | [ItemID: item-01] : 处理细节...
+    
+    log.remove("ItemID") # 手动移除一个上下文
+    log.info("项目A处理完毕。") # 输出: [DataBatch] | [BatchID: batch-9527] : 项目A处理完毕。
+    
+    # 手动重置所有临时上下文
+    log.reset()
+    log.info("批次处理完成。") # 输出: [DataBatch] : 批次处理完成。
+    
+asyncio.run(main())
+```
+
+### **2. 异步并发控制器 (`concurrency_utils.py`)**
 
 `concurrency_utils` 模块提供了强大的工具来管理和执行大量异步任务，核心是 `RunMethod` 类。
 
@@ -124,8 +258,8 @@ async def main():
     conc_params = ReqConcParam(
         func=worker_task,
         task=tasks_to_run,
-        thread=3,
-        wait=2,
+        thread=3,  # 同时只运行3个任务
+        wait=2,     # 每执行完一批（3个）任务后，等待2秒
         extra_param="FixedValue" # 额外的固定参数
     )
 
@@ -139,7 +273,7 @@ asyncio.run(main())
 ```
 
 ---
-### **2. 异步进程管理器 (`script_executor.py`)**
+### **3. 异步进程管理器 (`script_executor.py`)**
 
 `ProcessManager` 类能够以非阻塞的方式启动、监控和管理外部脚本或系统命令。
 
@@ -204,7 +338,7 @@ asyncio.run(main())
 ```
 
 ---
-### **3. 异步安全文件读写 (`async_file_utils.py`)**
+### **4. 异步安全文件读写 (`async_file_utils.py`)**
 
 `FileMethod` 类提供了一系列带锁的异步文件操作方法，确保在并发环境下的文件写入安全。
 
@@ -255,7 +389,8 @@ asyncio.run(main())
 ```
 
 ---
-### **4. 环境与配置 (`env_utils.py`)**
+
+### **5. 环境配置读取 (`env_utils.py`)**
 
 `EnvMethod` 类是读取项目配置的核心，提供了比 `os.getenv` 更强大的功能。
 
@@ -297,51 +432,6 @@ print(f"管道符列表: {list_val}")
 # 读取JSON格式的列表
 json_list_val = EnvMethod.readEnv("JSON_LIST_VAR", [])
 print(f"JSON列表: {json_list_val}")
-```
-
----
-### **5. 青龙面板 API (`openApi.py`)**
-
-`openApiCommonMethod` 类封装了与青龙面板交互的常用操作。
-
-#### 核心用法
-1.  实例化 `openApiCommonMethod`。
-2.  设置 `ql_api.openApi_Use = "PREFIX"` 来选择要操作的面板实例（`PREFIX` 对应 `config.sh` 中的 `OPENAPI_PREFIX_...`）。
-
-#### 常用方法
-- `get_cookie(ContainerName, name)`: 获取指定面板中某个环境变量的所有值。
-- `search_envs(keyword)`: 根据关键词搜索环境变量。
-- `update_envs(name, value, remarks, keyword)`: 更新指定的环境变量。
-- `search_task(keyword)`: 根据关键词搜索定时任务。
-- `run_crons_task(id)`: 运行指定ID的定时任务。
-
-```python
-import asyncio
-from utils.openApi import openApiCommonMethod
-
-async def main():
-    ql_api = openApiCommonMethod()
-    
-    # 选择要操作的青龙面板
-    ql_api.openApi_Use = "JD"
-    
-    # 示例：获取所有JD_COOKIE
-    print("正在获取 JD_COOKIE...")
-    cookies = await ql_api.get_cookie("JD", "JD_COOKIE")
-    if cookies:
-        print(f"成功获取 {len(cookies)} 个Cookie。")
-    
-    # 示例：运行一个任务
-    print("\n正在搜索 '京东签到' 任务...")
-    tasks_result = await ql_api.search_task("京东签到")
-    if tasks_result and tasks_result.get('data'):
-        task_id = tasks_result['data'][0]['id']
-        task_name = tasks_result['data'][0]['name']
-        print(f"找到任务 '{task_name}', ID: {task_id}。准备运行...")
-        await ql_api.run_crons_task(task_id)
-        print("任务已触发。")
-
-asyncio.run(main())
 ```
 
 ---
@@ -391,7 +481,52 @@ asyncio.run(main())
 ```
 
 ---
-### **7. 任务调度器 (`time_scheduler.py`)**
+### **7. 青龙面板 API (`openApi.py`)**
+
+`openApiCommonMethod` 类封装了与青龙面板交互的常用操作。
+
+#### 核心用法
+1.  实例化 `openApiCommonMethod`。
+2.  设置 `ql_api.openApi_Use = "PREFIX"` 来选择要操作的面板实例（`PREFIX` 对应 `config.sh` 中的 `OPENAPI_PREFIX_...`）。
+
+#### 常用方法
+- `get_cookie(ContainerName, name)`: 获取指定面板中某个环境变量的所有值。
+- `search_envs(keyword)`: 根据关键词搜索环境变量。
+- `update_envs(name, value, remarks, keyword)`: 更新指定的环境变量。
+- `search_task(keyword)`: 根据关键词搜索定时任务。
+- `run_crons_task(id)`: 运行指定ID的定时任务。
+
+```python
+import asyncio
+from utils.openApi import openApiCommonMethod
+
+async def main():
+    ql_api = openApiCommonMethod()
+    
+    # 选择要操作的青龙面板
+    ql_api.openApi_Use = "JD"
+    
+    # 示例：获取所有JD_COOKIE
+    print("正在获取 JD_COOKIE...")
+    cookies = await ql_api.get_cookie("JD", "JD_COOKIE")
+    if cookies:
+        print(f"成功获取 {len(cookies)} 个Cookie。")
+    
+    # 示例：运行一个任务
+    print("\n正在搜索 '京东签到' 任务...")
+    tasks_result = await ql_api.search_task("京东签到")
+    if tasks_result and tasks_result.get('data'):
+        task_id = tasks_result['data'][0]['id']
+        task_name = tasks_result['data'][0]['name']
+        print(f"找到任务 '{task_name}', ID: {task_id}。准备运行...")
+        await ql_api.run_crons_task(task_id)
+        print("任务已触发。")
+
+asyncio.run(main())
+```
+
+---
+### **8. 任务调度器 (`time_scheduler.py`)**
 
 `ServerTimeScheduler` 可用于需要精确时间的任务场景，如整点秒杀。
 
@@ -429,7 +564,7 @@ asyncio.run(main())
 ```
 
 ---
-### **8. User-Agent 生成器 (`user_agent_generator.py`)**
+### **9. User-Agent 生成器 (`user_agent_generator.py`)**
 
 轻松生成各种真实的移动设备User-Agent。
 
@@ -453,7 +588,7 @@ print(f"京东App OkHttp UA: {jd_ua_pair.okhttp}")
 ```
 
 ---
-### **9. 通知发送 (`sendNotify.py`)**
+### **10. 通知发送 (`sendNotify.py`)**
 
 `SendMethod` 负责加载所有启用的推送插件并发送消息。
 
@@ -463,6 +598,7 @@ print(f"京东App OkHttp UA: {jd_ua_pair.okhttp}")
 
 ```python
 import asyncio
+from datetime import datetime
 from utils.sendNotify import SendMethod, SendParam
 # from function.push_plugins.telegram import TelegramSender # 导入具体的插件类
 
@@ -487,11 +623,11 @@ asyncio.run(main())
 ```
 
 ---
-### **10. 开发者: 如何添加新的推送插件**
+### **11. 开发者: 如何添加新的推送插件**
 
 本工具库的通知系统是插件化的，添加新的推送方式非常简单。
 
-1.  在 `utils/push_plugins/` 目录下创建一个新的Python文件，例如 `my_pusher.py`。
+1.  在 `function/push_plugins/` 目录下创建一个新的Python文件，例如 `my_pusher.py`。
 2.  在该文件中，创建一个继承自 `BaseSender` 的类。
 3.  实现 `is_enabled` 和 `send` 两个抽象方法。
 

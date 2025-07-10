@@ -551,3 +551,185 @@ if __name__ == "__main__":
 ```
 
 *注意：预期结果中的总耗时和日志时间戳会因您的机器性能而略有不同，但执行的批次和顺序逻辑将保持一致。*
+
+---
+### **4. 环境配置工具 (`env_utils.py`)**
+
+`env_utils.py` 提供了一个强大的静态类 `EnvMethod`，用于以更智能、更结构化的方式读取和管理项目配置。它远比 `os.getenv` 更强大，能够自动处理类型转换、提供默认值，并支持将环境变量批量加载到类的属性中，极大地提升了代码的可读性和健壮性。
+
+## 核心功能 ✨
+
+- **智能类型转换**: 自动将环境变量中的 `"true"`/`"false"` 转换为布尔值，将 `"[...]"`, `"{...}"` 格式的字符串解析为Python列表或字典。
+- **多种列表格式支持**: 支持以 `|` 分隔的字符串列表（如 `"a|b|c"`）和JSON格式的列表。
+- **类型强制转换**: 提供 `codeInt` 等参数，用于将字符串强制转换为整数或整数列表。
+- **安全的默认值**: 当环境变量不存在时，可以安全地返回指定的默认值。
+- **结构化配置加载**: 提供了两种强大的方法 (`load_config_from_env` 和 `checkEnv`)，可以将分散的环境变量自动、安全地加载到一个配置类的实例中，让配置管理井井有条。
+- **反向写入支持**: 提供了 `newEnv` 和 `upEnv` 方法，用于通过代码修改 `config.sh` 文件（不常用）。
+
+---
+## 方法详解
+
+`EnvMethod` 中的所有方法都是静态方法，通过 `EnvMethod.method_name()`直接调用。
+
+### `readEnv(key, default=None, codeInt=False, codeList=False)`
+
+这是最基础也是最核心的读取方法。
+
+- **功能**: 智能地读取单个环境变量并进行类型转换。
+- **参数**:
+  - `key` (`str`): **必需**。环境变量的名称。
+  - `default` (`any`, optional): 当环境变量不存在或值为空时，返回此默认值。
+  - `codeInt` (`bool`, optional): 设置为 `True` 时，会尝试将读取到的值（或列表中的每一项）转换为整数。如果转换失败，会返回 `default` 值。
+  - `codeList` (`bool`, optional): 设置为 `True` 时，即使字符串中不包含 `|`，也会强制将其视为只有一个元素的列表。
+
+---
+### `load_config_from_env(obj_self, config_obj, err_exit=True)`
+
+**（推荐的配置加载方式）** 这是一种非常优雅的配置加载模式，利用Python的类型提示和类变量。
+
+- **功能**: 自动读取并加载一系列环境变量到目标对象的属性上。
+- **工作流程**:
+    1.  它会查看 `config_obj` 这个配置模板类。
+    2.  通过 `config_obj.env_map` 字典找到 **类属性名** 和 **环境变量名** 的映射关系。
+    3.  通过 `config_obj.__annotations__` (类型提示) 来决定如何转换变量类型（例如 `int`, `List[int]`）。
+    4.  读取环境变量，转换类型，然后用 `setattr` 将值赋给 `obj_self` (通常是 `self`)。
+- **参数**:
+  - `obj_self` (`object`): 要被设置属性的目标对象。
+  - `config_obj` (`object`): 一个专门用于定义配置结构的类的实例。这个类需要包含：
+    - `env_map` (dict): 映射表。
+    - `__annotations__` (类型提示): 用于自动类型转换。
+    - 属性的默认值。
+
+---
+### `checkEnv(obj_self, config, err_exit=True)`
+
+这是一种更为传统的配置加载方式，通过一个列表来定义所有需要加载的变量。
+
+- **功能**: 根据一个配置列表，读取环境变量并设置到目标对象的属性上。
+- **参数**:
+  - `obj_self` (`object`): 要被设置属性的目标对象。
+  - `config` (`List[Dict]`): 一个包含多个字典的列表，每个字典定义一个要加载的变量，格式如下：
+    ```python
+    {
+        "env_key": "YOUR_ENV_VAR_NAME",  # 环境变量名
+        "attribute": "your_attribute_name", # 要设置到的对象属性名
+        "type": int,  # 目标类型，如 str, int, List[int]
+        "default": 0  # 默认值
+    }
+    ```
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将完整地展示 `readEnv` 的智能转换能力，以及两种配置加载方法 `load_config_from_env` 和 `checkEnv` 的具体用法。
+
+```python
+# env_demo.py
+import os
+from typing import List, get_origin, get_args
+from utils.env_utils import EnvMethod
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("EnvDemo")
+
+# 1. 模拟在 config.sh 中设置环境变量
+os.environ['DEMO_STR'] = "hello world"
+os.environ['DEMO_INT'] = "123"
+os.environ['DEMO_LIST_PIPE'] = "a|b|c"
+os.environ['DEMO_JSON_LIST'] = '[1, 2, 3]'
+os.environ['DEMO_BOOL'] = 'true'
+os.environ['DEMO_NOT_EXIST'] = ''
+
+# --- Demo Part 1: 测试 readEnv 的各种情况 ---
+def demo_read_env():
+    log.info("--- 测试 readEnv ---")
+    str_val = EnvMethod.readEnv("DEMO_STR")
+    int_val = EnvMethod.readEnv("DEMO_INT", 0, codeInt=True)
+    list_pipe_val = EnvMethod.readEnv("DEMO_LIST_PIPE")
+    json_list_val = EnvMethod.readEnv("DEMO_JSON_LIST")
+    bool_val = EnvMethod.readEnv("DEMO_BOOL")
+    default_val = EnvMethod.readEnv("DEMO_NOT_EXIST", "我是默认值")
+
+    log.info(f"读取字符串: '{str_val}' (类型: {type(str_val)})")
+    log.info(f"读取整数: {int_val} (类型: {type(int_val)})")
+    log.info(f"读取管道列表: {list_pipe_val} (类型: {type(list_pipe_val)})")
+    log.info(f"读取JSON列表: {json_list_val} (类型: {type(json_list_val)})")
+    log.info(f"读取布尔值: {bool_val} (类型: {type(bool_val)})")
+    log.info(f"读取默认值: '{default_val}' (类型: {type(default_val)})")
+
+# --- Demo Part 2: 测试 load_config_from_env (推荐方式) ---
+def demo_load_from_class():
+    log.info("\n--- Demo 2: 测试 load_config_from_env (推荐方式) ---")
+    
+    # a. 定义一个配置模板类
+    class AppConfig:
+        # 映射表：将类属性名映射到环境变量名
+        env_map = {
+            'str_setting': 'DEMO_STR',
+            'int_setting': 'DEMO_INT',
+            'list_setting': 'DEMO_LIST_PIPE'
+        }
+        # b. 定义属性的类型提示和默认值
+        str_setting: str = "default_string"
+        int_setting: int = 0
+        list_setting: List[str] = []
+
+    # c. 在你的主程序类中使用
+    class MyApp:
+        def __init__(self):
+            # 将配置加载到 self 的属性上
+            EnvMethod.load_config_from_env(self, AppConfig())
+    
+    app = MyApp()
+    log.info(f"加载后 app.str_setting = '{app.str_setting}'")
+    log.info(f"加载后 app.int_setting = {app.int_setting}")
+    log.info(f"加载后 app.list_setting = {app.list_setting}")
+
+# --- Demo Part 3: 测试 checkEnv (备选方式) ---
+def demo_check_env():
+    log.info("\n--- Demo 3: 测试 checkEnv (备选方式) ---")
+    
+    # a. 定义一个配置清单
+    CONFIG_LIST = [
+        {"env_key": "DEMO_STR", "attribute": "str_attr", "type": str, "default": "d"},
+        {"env_key": "DEMO_INT", "attribute": "int_attr", "type": int, "default": 0},
+    ]
+
+    # b. 在你的主程序类中使用
+    class AnotherApp:
+        def __init__(self):
+            self.str_attr = ""
+            self.int_attr = 0
+            EnvMethod.checkEnv(self, CONFIG_LIST)
+            
+    app = AnotherApp()
+    log.info(f"加载后 app.str_attr = '{app.str_attr}'")
+    log.info(f"加载后 app.int_attr = {app.int_attr}")
+
+# --- 运行所有Demo ---
+demo_read_env()
+demo_load_from_class()
+demo_check_env()
+```
+
+### 预期的打印结果
+
+```
+[TIME] | INFO     | [EnvDemo] : --- 测试 readEnv ---
+[TIME] | INFO     | [EnvDemo] : 读取字符串: 'hello world' (类型: <class 'str'>)
+[TIME] | INFO     | [EnvDemo] : 读取整数: 123 (类型: <class 'int'>)
+[TIME] | INFO     | [EnvDemo] : 读取管道列表: ['a', 'b', 'c'] (类型: <class 'list'>)
+[TIME] | INFO     | [EnvDemo] : 读取JSON列表: [1, 2, 3] (类型: <class 'list'>)
+[TIME] | INFO     | [EnvDemo] : 读取布尔值: True (类型: <class 'bool'>)
+[TIME] | INFO     | [EnvDemo] : 读取默认值: '我是默认值' (类型: <class 'str'>)
+[TIME] | INFO     | [EnvDemo] : 
+--- Demo 2: 测试 load_config_from_env (推荐方式) ---
+[TIME] | INFO     | [EnvDemo] : 加载后 app.str_setting = 'hello world'
+[TIME] | INFO     | [EnvDemo] : 加载后 app.int_setting = 123
+[TIME] | INFO     | [EnvDemo] : 加载后 app.list_setting = ['a', 'b', 'c']
+[TIME] | INFO     | [EnvDemo] : 
+--- Demo 3: 测试 checkEnv (备选方式) ---
+[TIME] | INFO     | [EnvDemo] : 加载后 app.str_attr = 'hello world'
+[TIME] | INFO     | [EnvDemo] : 加载后 app.int_attr = 123
+```

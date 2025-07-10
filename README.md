@@ -1593,3 +1593,213 @@ if __name__ == "__main__":
 --- 4. DELETE: 删除该变量 ---
 [TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已删除。
 ```
+
+---
+### **10. 推送通知管理器 (`sendNotify.py`)**
+
+`sendNotify.py` 模块提供了一个强大且高度可扩展的通知发送框架。其核心设计理念是**“一次编写，到处推送”**。您只需在您的主脚本中调用一次发送方法，`SendMethod` 就会自动将您的消息分发到所有您已配置并启用的推送渠道（如Telegram, PushDeer, Server酱等）。
+
+## 核心功能 ✨
+
+- **插件化架构**: 通知渠道以独立的“插件”形式存在于 `function/push_plugins/` 目录下，添加新的推送方式只需创建一个新文件，无需修改任何核心代码。
+- **动态加载**: `SendMethod` 在初始化时会自动扫描、导入并实例化所有可用的插件。
+- **统一发送接口**:
+  - `send_all`: 一键将消息广播到所有启用的渠道。
+  - `send_to`: 支持将消息精准地发送到某一个或某几个指定的渠道。
+- **结构化消息**: 通过 `SendParam` 数据类来封装通知的标题和内容，使代码更清晰。
+- **完全异步**: 所有通知的发送过程都是非阻塞的，不会影响您主程序 `asyncio` 事件循环的性能。
+
+## 核心类与方法详解
+
+### `SendMethod` 类
+这是与通知系统交互的主控制器。它在实例化时会自动加载所有插件。
+
+#### `async def send_all(self, param: SendParam)`
+- **功能**: 向**所有**已在 `config.sh` 中配置并启用的推送渠道发送消息。这是最常用的广播方法。
+- **参数**:
+  - `param` (`SendParam`): 包含通知内容的 `SendParam` 对象。
+
+#### `async def send_to(self, sender_class: Type[BaseSender], param: SendParam)`
+- **功能**: 向**指定**的单个推送渠道发送消息。
+- **参数**:
+  - `sender_class` (`Type[BaseSender]`): 您想调用的推送插件的**类名**。您需要从对应的插件文件中导入这个类。
+  - `param` (`SendParam`): 包含通知内容的 `SendParam` 对象。
+
+### `SendParam` 数据类
+用于标准、清晰地封装要发送的消息内容。
+
+#### `__init__(self, title: str = None, content: Union[str, List[str]] = None, uids: Union[List[str], str] = None)`
+- **参数**:
+  - `title` (`str`): 通知的标题。
+  - `content` (`Union[str, List[str]]`): 通知的主体内容。如果传入一个字符串列表，它们会被自动用换行符 (`\n`) 连接成一个多行字符串。
+  - `uids` (`Union[List[str], str]`, optional): (高级用法) 某些推送插件可能支持向特定用户ID推送，通过此参数传递。
+
+---
+## 如何使用通知系统 (测试Demo)
+
+下面的Demo将演示如何构建一条消息，并将其发送到所有已启用的渠道。
+
+```python
+# notify_usage_demo.py
+import asyncio
+from datetime import datetime
+from utils.sendNotify import SendMethod, SendParam
+from utils.logging_utils import PrintMethodClass
+
+# 假设您已经在 function/push_plugins/ 目录下创建了我们稍后将要开发的 pushdeer.py 插件
+# 并且在 config.sh 中配置好了 PUSHDEER_ISOPEN 和 PUSHDEER_KEY
+# from function.push_plugins.pushdeer import PushDeerSender # 仅在用 send_to 时需要导入
+
+log = PrintMethodClass("NotifyDemo")
+
+async def main():
+    # 1. 实例化 SendMethod，它会自动加载所有可用插件
+    notify = SendMethod()
+    
+    # 2. 检查是否有任何启用的推送器
+    if not notify.senders:
+        log.warning("警告：在 'function/push_plugins/' 目录中未找到任何已启用的推送插件。")
+        log.warning("请检查您的插件文件或 'config.sh' 中的配置 (例如 PUSHDEER_ISOPEN='true')。")
+        return
+
+    # 3. 使用 SendParam 创建一条结构化的消息
+    # content 可以是列表，会被自动格式化为多行文本
+    params = SendParam(
+        title="自动化任务每日报告", 
+        content=[
+            "✅ 京东签到: 成功, 获得 10 京豆。",
+            "❌ 饿了么任务: 失败 - Cookie已失效。",
+            f"🕒 报告时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        ]
+    )
+    
+    # 4. 使用 send_all() 将消息广播到所有启用的渠道
+    log.info("准备向所有启用的渠道发送通知...")
+    await notify.send_all(params)
+
+    # 5. (可选) 使用 send_to() 向特定渠道发送
+    # 假设 PushDeerSender 存在且已启用
+    # if PushDeerSender in notify.senders:
+    #     log.info("\n准备单独向 PushDeer 发送一条特定消息...")
+    #     specific_params = SendParam(title="这是一条来自send_to的消息", content="你好，PushDeer！")
+    #     await notify.send_to(PushDeerSender, specific_params)
+
+    log.info("通知发送流程结束。")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### **预期的打印结果**
+*假设您已按照下面的开发指南创建并配置了 `pushdeer.py` 插件。*
+```
+[TIME] | INFO     | [NotifyDemo] : 准备向所有启用的渠道发送通知...
+[TIME] | INFO     | [sendNotify] : 开始向 1 个启用的推送器（全部）发送消息: 自动化任务每日报告
+[TIME] | INFO     | [sendNotify] | [PushDeerSender] : 开始向指定推送器 [PushDeerSender] 发送消息: 自动化任务每日报告
+[TIME] | INFO     | [sendNotify] | [PushDeerSender] : PushDeer 推送成功！
+[TIME] | INFO     | [sendNotify] | [PushDeerSender] : 指定推送任务 [PushDeerSender] 执行成功。
+[TIME] | INFO     | [NotifyDemo] : 通知发送流程结束。
+```
+---
+## 开发者指南：如何添加新的推送插件 (保姆级教程)
+
+本工具库的通知系统是插件化的，这意味您可以非常轻松地添加任何您想使用的推送服务。下面我们以添加一个流行的 **PushDeer** 推送服务为例，一步步教您如何操作。
+
+### **第一步: 创建插件文件**
+在 `function/push_plugins/` 目录下，创建一个新的Python文件，命名为您推送服务的名字，例如 `pushdeer.py`。
+
+### **第二步: 编写完整类代码**
+打开 `pushdeer.py` 文件，将以下**完整代码**复制进去。这段代码是插件的核心，包含了所有必需的逻辑，您可以将其作为模板用于开发其他插件。
+
+```python
+# function/push_plugins/pushdeer.py
+import json
+from utils.sendNotify import BaseSender
+from utils.env_utils import EnvMethod
+
+class PushDeerSender(BaseSender):
+    """
+    PushDeer 推送插件
+    官方文档: [https://www.pushdeer.com/](https://www.pushdeer.com/)
+    """
+    def __init__(self):
+        """
+        初始化 PushDeer 推送器。
+        - 调用父类构造函数 (super().__init__()) 来获取 self.req (HTTP请求器) 和 self.log (日志记录器)。
+        - 从环境变量读取 PUSHDEER_ISOPEN 和 PUSHDEER_KEY。
+        """
+        super().__init__()
+        
+        # 从环境变量读取配置
+        self.is_open = EnvMethod.readEnv("PUSHDEER_ISOPEN", "false").lower() == "true"
+        self.key = EnvMethod.readEnv("PUSHDEER_KEY")
+        
+        # 定义API地址
+        self.api_url = "[https://api2.pushdeer.com/message/push](https://api2.pushdeer.com/message/push)"
+
+    def is_enabled(self) -> bool:
+        """
+        判断此推送器是否已在环境变量中正确配置并启用。
+        只有当 PUSHDEER_ISOPEN 为 "true" 且 PUSHDEER_KEY 有值时，才算启用。
+        """
+        return self.is_open and bool(self.key)
+
+    async def send(self, title: str, content: str, **kwargs) -> bool:
+        """
+        实现具体的发送逻辑。
+        """
+        # 如果未启用，直接返回失败，不执行任何操作
+        if not self.is_enabled():
+            return False
+            
+        # 1. 构造请求体 (Payload)
+        # PushDeer的API需要 'pushkey', 'text', 'desp'
+        # 我们将标题作为 text，内容作为 desp (支持Markdown)
+        payload = {
+            "pushkey": self.key,
+            "text": title,
+            "desp": content.replace('\n', '\n\n'), # PushDeer使用markdown，换两行才是真正的换行
+            "type": "markdown" # 指定类型为markdown
+        }
+        
+        # 2. 构造完整的HTTP请求参数
+        params = {
+            "method": "POST",
+            "url": self.api_url,
+            "data": payload # PushDeer 使用 form-data，所以用 'data' 而不是 'json'
+        }
+        
+        # 3. 调用HTTP客户端发送请求
+        response = await self.req.async_curl_requests(params, "PushDeer")
+        
+        # 4. 判断结果并返回布尔值
+        if response.status == 200:
+            try:
+                res_json = json.loads(response.text)
+                # 根据PushDeer的返回格式判断是否成功
+                if res_json.get("code") == 0:
+                    self.log.info("PushDeer 推送成功！")
+                    return True
+            except Exception as e:
+                self.log.error(f"PushDeer 推送成功，但解析返回JSON时出错: {e}", exit=False)
+                return False
+        
+        # 如果HTTP状态码不为200或API返回错误码
+        self.log.error(f"PushDeer 推送失败: {response.text}", exit=False)
+        return False
+```
+
+### **第三步: 添加配置到 `config.sh`**
+打开 `/env/config.sh` 文件，在末尾添加PushDeer的配置。
+
+```shell
+# --- 推送通知插件配置 (PushDeer示例) ---
+# 是否启用PushDeer, "true" 或 "false"
+export PUSHDEER_ISOPEN="true"
+
+# 你的PushDeer Key
+export PUSHDEER_KEY="PDU123456789xxxx" # 替换成你自己的PushDeer Key
+```
+
+### **完成!**
+至此，您已成功添加了一个全新的推送插件。现在，当您运行上面的**使用Demo**时，`SendMethod` 就会自动发现并执行您的 `PushDeerSender`，将消息推送到您的设备上。

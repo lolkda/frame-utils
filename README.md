@@ -88,12 +88,12 @@ export log_level="20"
   - **参数**:
     - `ContainerName`: 面板前缀，如 `"JD"`。
     - `name`: 环境变量名，如 `"JD_COOKIE"`。
-  - **返回**: 一个包含所有同名环境变量值的字符串列表。
+  - **返回**: `List[str]` - 一个包含所有同名环境变量值的字符串列表。
 
 - **`async def search_envs(self, keyword: str) -> List[Dict]`**
   - **功能**: 根据关键词模糊搜索环境变量。
-  - **参数**: `keyword` - 搜索的关键词。
-  - **返回**: 包含环境变量对象字典的列表。例如:
+  - **参数**: `keyword` (str) - 搜索的关键词。
+  - **返回**: `List[Dict]` - 包含环境变量对象字典的列表。例如:
     ```json
     [{
       "id": 123,
@@ -108,9 +108,11 @@ export log_level="20"
 - **`async def update_envs(self, name: str, value: str, remarks: str, add_env: bool, keyword: str) -> None`**
   - **功能**: 更新或新增一个环境变量。它会先通过 `keyword` 搜索，如果找到就更新，找不到且 `add_env=True` 则新增。
   - **参数**:
-    - `name`, `value`, `remarks`: 环境变量的名称、值和备注。
-    - `add_env`: (可选, `bool`) 如果找不到是否新增，默认为`False`。
-    - `keyword`: 用于定位要更新的环境变量的关键词。
+    - `name` (str): 环境变量的名称。
+    - `value` (str): 环境变量的值。
+    - `remarks` (str, optional): 备注。
+    - `add_env` (bool, optional): 如果找不到是否新增，默认为`False`。
+    - `keyword` (str): 用于定位要更新的环境变量的关键词。
 
 - **`async def disable_envs(self, id: Union[int, List[int]]) -> None`**
   - **功能**: 禁用一个或多个环境变量。
@@ -122,7 +124,7 @@ export log_level="20"
 
 - **`async def search_task(self, keyword: str) -> Dict`**
   - **功能**: 根据关键词搜索定时任务。
-  - **返回**: 包含任务列表的字典，任务数据在 `data['data']` 中。
+  - **返回**: `Dict` - 包含任务列表的字典，任务数据在 `data['data']` 中。
 
 - **`async def run_crons_task(self, id: Union[str, List[str]]) -> None`**
   - **功能**: 运行一个或多个定时任务。
@@ -195,16 +197,20 @@ if __name__ == "__main__":
 ```
 [TIME] | INFO     | [QL_Demo] : --- 1. 新增/更新环境变量 'MY_API_TEST_VAR' ---
 [TIME] | INFO     | [QL_Demo] : 变量 'MY_API_TEST_VAR' 已创建或更新。
-[TIME] | INFO     | [QL_Demo] : --- 2. 搜索并确认变量 ---
-[TIME] | INFO     | [QL_Demo] : 找到变量，ID: <some_id>
-[TIME] | INFO     | [QL_Demo] : --- 3. 禁用与启用 ---
-[TIME] | INFO     | [QL_Demo] : 变量 ID:<some_id> 已禁用。
-[TIME] | INFO     | [QL_Demo] : 变量 ID:<some_id> 已重新启用。
-[TIME] | INFO     | [QL_Demo] : --- 4. 运行一个定时任务 ---
-[TIME] | INFO     | [QL_Demo] : 找到任务: '京东签到' (ID: <task_id>)，准备运行...
+[TIME] | INFO     | [QL_Demo] :
+--- 2. 搜索并确认变量 ---
+[TIME] | INFO     | [QL_Demo] : 找到变量，ID: 123, 值为: 'initial_value_123'
+[TIME] | INFO     | [QL_Demo] :
+--- 3. 禁用与启用 ---
+[TIME] | INFO     | [QL_Demo] : 变量 ID:123 已禁用。
+[TIME] | INFO     | [QL_Demo] : 变量 ID:123 已重新启用。
+[TIME] | INFO     | [QL_Demo] :
+--- 4. 运行一个定时任务 ---
+[TIME] | INFO     | [QL_Demo] : 找到任务: '京东签到' (ID: abc-123)，准备运行...
 [TIME] | INFO     | [QL_Demo] : 任务已触发运行。
-[TIME] | INFO     | [QL_Demo] : --- 5. 清理测试变量 ---
-[TIME] | INFO     | [QL_Demo] : 测试变量 ID:<some_id> 已被删除。
+[TIME] | INFO     | [QL_Demo] :
+--- 5. 清理测试变量 ---
+[TIME] | INFO     | [QL_Demo] : 测试变量 ID:123 已被删除。
 ```
 
 ---
@@ -260,13 +266,17 @@ if __name__ == "__main__":
 ```
 [TIME] | INFO     | [QL_LowLevel_Demo] : --- 1. POST: 新增一个环境变量 ---
 [TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已新增。
-[TIME] | INFO     | [QL_LowLevel_Demo] : --- 2. GET: 搜索该变量 ---
-[TIME] | INFO     | [QL_LowLevel_Demo] : 找到变量，ID: <some_id>
-[TIME] | INFO     | [QL_LowLevel_Demo] : --- 3. PUT: 更新该变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] :
+--- 2. GET: 搜索该变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] : 找到变量，ID: 124
+[TIME] | INFO     | [QL_LowLevel_Demo] :
+--- 3. PUT: 更新该变量 ---
 [TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已更新。
-[TIME] | INFO     | [QL_LowLevel_Demo] : --- 4. DELETE: 删除该变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] :
+--- 4. DELETE: 删除该变量 ---
 [TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已删除。
 ```
+
 ---
 ### **2. 环境配置读取 (`env_utils.py`)**
 
@@ -328,8 +338,8 @@ log.info("\n--- 测试 load_config_from_env ---")
 # 定义一个配置模板类
 class MyScriptConfig:
     env_map = {
-        'some_string': 'DEMO_STR',
-        'some_number': 'DEMO_INT',
+        'str_setting': 'DEMO_STR',
+        'int_setting': 'DEMO_INT',
         'some_items': 'DEMO_LIST_PIPE'
     }
     # 定义属性和类型提示，以及默认值
@@ -358,7 +368,8 @@ log.info(f"加载后 app.some_items = {app.some_items}")
 [TIME] | INFO     | [EnvDemo] : 读取JSON列表: [1, 2, 3] (类型: <class 'list'>)
 [TIME] | INFO     | [EnvDemo] : 读取布尔值: True (类型: <class 'bool'>)
 [TIME] | INFO     | [EnvDemo] : 读取默认值: '我是默认值' (类型: <class 'str'>)
-[TIME] | INFO     | [EnvDemo] : --- 测试 load_config_from_env ---
+[TIME] | INFO     | [EnvDemo] : 
+--- 测试 load_config_from_env ---
 [TIME] | INFO     | [EnvDemo] : 加载后 app.some_string = 'hello world'
 [TIME] | INFO     | [EnvDemo] : 加载后 app.some_number = 123
 [TIME] | INFO     | [EnvDemo] : 加载后 app.some_items = ['a', 'b', 'c']
@@ -407,9 +418,9 @@ if __name__ == "__main__":
 **预期打印结果**:
 ```
 [TIME] | INFO     | [NotifyDemo] : 准备向所有启用的渠道发送通知...
-[TIME] | INFO     | [NotifyDemo] | [PushDeerSender] : 开始向指定推送器 [PushDeerSender] 发送消息: 自动化任务报告
-[TIME] | INFO     | [NotifyDemo] | [PushDeerSender] : PushDeer 推送成功！
-[TIME] | INFO     | [NotifyDemo] | [PushDeerSender] : 指定推送任务 [PushDeerSender] 执行成功。
+[TIME] | INFO     | [sendNotify] | [PushDeerSender] : 开始向指定推送器 [PushDeerSender] 发送消息: 自动化任务报告
+[TIME] | INFO     | [sendNotify] | [PushDeerSender] : PushDeer 推送成功！
+[TIME] | INFO     | [sendNotify] | [PushDeerSender] : 指定推送任务 [PushDeerSender] 执行成功。
 ```
 ---
 #### **开发者指南：如何添加新的推送插件 (保姆级教程)**
@@ -419,36 +430,39 @@ if __name__ == "__main__":
 ##### **第一步: 创建插件文件**
 在 `function/push_plugins/` 目录下，创建一个新的Python文件，命名为您推送服务的名字，例如 `pushdeer.py`。
 
-##### **第二步: 编写类结构**
-打开 `pushdeer.py` 文件，写入以下基础代码。我们创建一个 `PushDeerSender` 类，并让它继承自 `BaseSender`。
+##### **第二步: 编写完整类代码**
+打开 `pushdeer.py` 文件，将以下完整代码复制进去。这段代码包含了所有必需的逻辑。
 
 ```python
 # function/push_plugins/pushdeer.py
-
+import json
 from utils.sendNotify import BaseSender
 from utils.env_utils import EnvMethod
-import json
 
 class PushDeerSender(BaseSender):
     """
     PushDeer 推送插件
-    [https://www.pushdeer.com/](https://www.pushdeer.com/)
+    官方文档: [https://www.pushdeer.com/](https://www.pushdeer.com/)
     """
     def __init__(self):
-        # 1. 必须调用父类的构造方法，它会初始化 self.req 和 self.log
+        """
+        初始化 PushDeer 推送器。
+        - 调用父类构造函数 (super().__init__()) 来获取 self.req (HTTP请求器) 和 self.log (日志记录器)。
+        - 从环境变量读取 PUSHDEER_ISOPEN 和 PUSHDEER_KEY。
+        """
         super().__init__()
         
-        # 2. 从环境变量读取本插件的配置
+        # 从环境变量读取配置
         self.is_open = EnvMethod.readEnv("PUSHDEER_ISOPEN", "false").lower() == "true"
         self.key = EnvMethod.readEnv("PUSHDEER_KEY")
         
-        # 3. (可选) 您也可以在这里定义API地址等固定信息
+        # 定义API地址
         self.api_url = "[https://api2.pushdeer.com/message/push](https://api2.pushdeer.com/message/push)"
 
     def is_enabled(self) -> bool:
         """
-        判断此推送器是否已在环境变量中启用。
-        只有当 PUSHDEER_ISOPEN 为 true 且 PUSHDEER_KEY 有值时，才算启用。
+        判断此推送器是否已在环境变量中正确配置并启用。
+        只有当 PUSHDEER_ISOPEN 为 "true" 且 PUSHDEER_KEY 有值时，才算启用。
         """
         return self.is_open and bool(self.key)
 
@@ -456,36 +470,43 @@ class PushDeerSender(BaseSender):
         """
         实现具体的发送逻辑。
         """
+        # 如果未启用，直接返回失败，不执行任何操作
         if not self.is_enabled():
-            return False # 如果未启用，直接返回失败
+            return False
             
-        # 1. 构造请求参数
+        # 1. 构造请求体 (Payload)
         # PushDeer的API需要 'pushkey', 'text', 'desp'
+        # 我们将标题作为 text，内容作为 desp (支持Markdown)
+        payload = {
+            "pushkey": self.key,
+            "text": title,
+            "desp": content.replace('\n', '\n\n'), # PushDeer使用markdown，换两行才是真正的换行
+            "type": "markdown" # 指定类型为markdown
+        }
+        
+        # 2. 构造完整的HTTP请求参数
         params = {
             "method": "POST",
             "url": self.api_url,
-            "data": {
-                "pushkey": self.key,
-                "text": title,
-                "desp": content.replace('\n', '\n\n') # PushDeer使用markdown，换两行才是换行
-            }
+            "data": payload # PushDeer 使用 form-data，所以用 'data' 而不是 'json'
         }
         
-        # 2. 调用HTTP客户端发送请求
-        # `self.req` 是从 BaseSender 继承而来的 AsyncRequestManager 实例
-        # `self.log` 是从 BaseSender 继承而来的 PrintMethodClass 实例
+        # 3. 调用HTTP客户端发送请求
         response = await self.req.async_curl_requests(params, "PushDeer")
         
-        # 3. 判断结果并返回布尔值
+        # 4. 判断结果并返回布尔值
         if response.status == 200:
             try:
                 res_json = json.loads(response.text)
+                # 根据PushDeer的返回格式判断是否成功
                 if res_json.get("code") == 0:
                     self.log.info("PushDeer 推送成功！")
                     return True
-            except Exception:
-                pass # JSON解析失败
+            except Exception as e:
+                self.log.error(f"PushDeer 推送成功，但解析返回JSON时出错: {e}", exit=False)
+                return False
         
+        # 如果HTTP状态码不为200或API返回错误码
         self.log.error(f"PushDeer 推送失败: {response.text}", exit=False)
         return False
 ```

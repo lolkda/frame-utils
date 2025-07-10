@@ -1,4 +1,4 @@
-# Python 高性能异步自动化工具库 (终极详细版)
+# Python 高性能异步自动化工具库 (终极版文档)
 
 [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -88,12 +88,12 @@ export log_level="20"
   - **参数**:
     - `ContainerName`: 面板前缀，如 `"JD"`。
     - `name`: 环境变量名，如 `"JD_COOKIE"`。
-  - **返回**: `List[str]` - 一个包含所有同名环境变量值的字符串列表。
+  - **返回**: 一个包含所有同名环境变量值的字符串列表 `List[str]`。
 
 - **`async def search_envs(self, keyword: str) -> List[Dict]`**
   - **功能**: 根据关键词模糊搜索环境变量。
   - **参数**: `keyword` (str) - 搜索的关键词。
-  - **返回**: `List[Dict]` - 包含环境变量对象字典的列表。例如:
+  - **返回**: 包含环境变量对象字典的列表 `List[Dict]`。例如:
     ```json
     [{
       "id": 123,
@@ -197,18 +197,18 @@ if __name__ == "__main__":
 ```
 [TIME] | INFO     | [QL_Demo] : --- 1. 新增/更新环境变量 'MY_API_TEST_VAR' ---
 [TIME] | INFO     | [QL_Demo] : 变量 'MY_API_TEST_VAR' 已创建或更新。
-[TIME] | INFO     | [QL_Demo] :
+[TIME] | INFO     | [QL_Demo] : 
 --- 2. 搜索并确认变量 ---
 [TIME] | INFO     | [QL_Demo] : 找到变量，ID: 123, 值为: 'initial_value_123'
-[TIME] | INFO     | [QL_Demo] :
+[TIME] | INFO     | [QL_Demo] : 
 --- 3. 禁用与启用 ---
 [TIME] | INFO     | [QL_Demo] : 变量 ID:123 已禁用。
 [TIME] | INFO     | [QL_Demo] : 变量 ID:123 已重新启用。
-[TIME] | INFO     | [QL_Demo] :
+[TIME] | INFO     | [QL_Demo] : 
 --- 4. 运行一个定时任务 ---
 [TIME] | INFO     | [QL_Demo] : 找到任务: '京东签到' (ID: abc-123)，准备运行...
 [TIME] | INFO     | [QL_Demo] : 任务已触发运行。
-[TIME] | INFO     | [QL_Demo] :
+[TIME] | INFO     | [QL_Demo] : 
 --- 5. 清理测试变量 ---
 [TIME] | INFO     | [QL_Demo] : 测试变量 ID:123 已被删除。
 ```
@@ -418,6 +418,7 @@ if __name__ == "__main__":
 **预期打印结果**:
 ```
 [TIME] | INFO     | [NotifyDemo] : 准备向所有启用的渠道发送通知...
+[TIME] | INFO     | [sendNotify] : 开始向 1 个启用的推送器（全部）发送消息: 自动化任务报告
 [TIME] | INFO     | [sendNotify] | [PushDeerSender] : 开始向指定推送器 [PushDeerSender] 发送消息: 自动化任务报告
 [TIME] | INFO     | [sendNotify] | [PushDeerSender] : PushDeer 推送成功！
 [TIME] | INFO     | [sendNotify] | [PushDeerSender] : 指定推送任务 [PushDeerSender] 执行成功。

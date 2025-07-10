@@ -89,6 +89,157 @@ export log_level="20"
 
 ## 模块使用指南 🛠️
 
+### **1. 异步HTTP客户端 (`http_client.py`)**
+
+## 核心功能 ✨
+
+- **高性能异步请求**: 利用 `curl_cffi` 库，支持HTTP/2和TLS指纹伪装，能更好地模拟真实浏览器行为，有效规避WAF检测。
+- **单例模式**: `AsyncRequestManager` 和 `ProxyManager` 均采用单例模式，确保在整个应用中只有一个实例，高效管理连接和资源。
+- **智能代理管理**: `ProxyManager` 可自动从配置的API地址获取和轮换代理IP，支持代理池和单个API两种模式。
+- **自动重试机制**: `async_curl_requests` 方法内置了失败重试逻辑，提高了脚本的健壮性。
+- **灵活的请求配置**: 所有请求参数通过一个字典对象传递，清晰明了，易于构造和修改。
+
+## 核心类与方法详解
+
+### `AsyncRequestManager`
+
+这是您用来发送所有HTTP请求的主类。它是一个单例，您无需担心多次实例化会造成资源浪费。
+
+#### `async def async_curl_requests(self, param: Dict, name: str, retry: int = 10) -> AsyncResponse`
+这是发送所有请求的核心方法。
+
+- **参数**:
+    - `param` (`Dict`): 一个包含所有请求配置的字典，关键字段如下：
+        - `method` (str): **必需**。HTTP方法，如 `'GET'`, `'POST'`, `'PUT'`。
+        - `url` (str): **必需**。请求的目标URL。
+        - `headers` (Dict, optional): 请求头。
+        - `cookies` (Dict, optional): 要附加到请求的Cookie。
+        - `params` (Dict, optional): URL的查询参数，用于GET请求。
+        - `json` (Dict, optional): 发送JSON格式的请求体。
+        - `data` (Dict or str, optional): 发送 `application/x-www-form-urlencoded` 格式的表单数据。
+        - `proxy` (bool or str, optional): 是否使用代理。
+            - 设置为 `True`: 将从 `ProxyManager` 自动获取一个代理。
+            - 设置为代理字符串 (如 `'http://user:pass@host:port'`): 将直接使用该代理。
+            - 默认为 `False` 或不设置，不使用代理。
+        - `proxy_retry` (bool, optional): `True` 时，如果初始请求失败，会自动切换为使用代理进行重试。
+        - `timeout` (int, optional): 本次请求的超时时间（秒），会覆盖全局配置。
+        - `allow_redirects` (bool, optional): 是否允许重定向，默认为 `False`。
+        - `clear` (bool, optional): `True` 时，请求完成后会清空会话中的Cookie。
+    - `name` (`str`): 本次请求的名称，主要用于日志记录，便于问题排查。
+    - `retry` (`int`, optional): 最大重试次数，默认为10。
+
+- **返回**:
+  - `AsyncResponse`: 一个包含响应信息的数据对象。
+
+### `AsyncResponse`
+
+`async_curl_requests` 方法成功后的返回值类型，包含了所有你需要的回应信息。
+
+- **属性**:
+    - `status` (`int`): HTTP状态码，如 `200`, `404`。
+    - `headers` (`Dict`): 响应头。
+    - `text` (`str`): 响应体文本内容。
+    - `url` (`str`): 经过重定向（如果允许）后的最终URL。
+
+### `ProxyManager`
+
+在后台工作的代理管理器，您通常不需要直接与之交互。当您在请求参数中设置 `proxy=True` 时，`AsyncRequestManager` 会自动调用它来获取代理IP。它的行为由 `config.sh` 中的 `PROXY_URL` 和 `PROXY_Method` 环境变量控制。
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将演示如何使用 `AsyncRequestManager` 来执行不同类型的HTTP请求。
+
+```python
+# http_client_demo.py
+import asyncio
+import json
+from utils.http_client import AsyncRequestManager
+from utils.logging_utils import PrintMethodClass
+
+# 初始化日志记录器，以便看到请求过程中的输出
+log = PrintMethodClass("HttpClientDemo")
+
+async def main():
+    # 获取AsyncRequestManager的单例实例
+    req = AsyncRequestManager()
+
+    log.info("--- 1. 发送一个简单的 GET 请求 ---")
+    get_params = {
+        "method": "GET",
+        "url": "[https://httpbin.org/get](https://httpbin.org/get)",
+        "params": {"param1": "value1", "source": "demo"},
+        "headers": {"Accept": "application/json"}
+    }
+    response_get = await req.async_curl_requests(get_params, "TestGET")
+    if response_get.status == 200:
+        log.info(f"GET 请求成功，状态码: {response_get.status}")
+        # 解析返回的JSON并打印'args'字段
+        data = json.loads(response_get.text)
+        log.info(f"服务器收到的GET参数: {data.get('args')}")
+    else:
+        log.error(f"GET 请求失败，状态码: {response_get.status}")
+
+
+    log.info("\n--- 2. 发送一个带 JSON Body 的 POST 请求 ---")
+    post_params = {
+        "method": "POST",
+        "url": "[https://httpbin.org/post](https://httpbin.org/post)",
+        "json": {"user": "test_user", "id": 12345},
+        "headers": {"X-Request-By": "DemoScript"}
+    }
+    response_post = await req.async_curl_requests(post_params, "TestPOST")
+    if response_post.status == 200:
+        log.info(f"POST 请求成功，状态码: {response_post.status}")
+        data = json.loads(response_post.text)
+        log.info(f"服务器收到的JSON数据: {data.get('json')}")
+        log.info(f"服务器收到的自定义请求头: {data.get('headers').get('X-Request-By')}")
+    else:
+        log.error(f"POST 请求失败，状态码: {response_post.status}")
+
+
+    log.info("\n--- 3. 演示代理请求 (需配置好 PROXY_URL) ---")
+    proxy_params = {
+        "method": "GET",
+        "url": "[https://api.ipify.org?format=json](https://api.ipify.org?format=json)",
+        "proxy": True # 明确指示使用代理
+    }
+    response_proxy = await req.async_curl_requests(proxy_params, "TestProxyGET")
+    if response_proxy.status == 200:
+        log.info("代理请求成功！")
+        log.info(f"通过代理获取到的IP: {response_proxy.text.strip()}")
+    else:
+        log.warning(f"代理请求失败或未配置代理，状态码: {response_proxy.status}")
+
+
+if __name__ == "__main__":
+    # 确保您的 config.sh 中有代理配置，否则第三个示例会失败
+    # 例如: export PROXY_URL="http://your_proxy_api"
+    #      export PROXY_Method="pool"
+    asyncio.run(main())
+
+```
+
+### 预期的打印结果
+
+```
+[TIME] | INFO     | [HttpClientDemo] : --- 1. 发送一个简单的 GET 请求 ---
+[TIME] | INFO     | [HttpClientDemo] | [Local] : GET 请求成功，状态码: 200
+[TIME] | INFO     | [HttpClientDemo] | [Local] : 服务器收到的GET参数: {'param1': 'value1', 'source': 'demo'}
+[TIME] | INFO     | [HttpClientDemo] : 
+--- 2. 发送一个带 JSON Body 的 POST 请求 ---
+[TIME] | INFO     | [HttpClientDemo] | [Local] : POST 请求成功，状态码: 200
+[TIME] | INFO     | [HttpClientDemo] | [Local] : 服务器收到的JSON数据: {'user': 'test_user', 'id': 12345}
+[TIME] | INFO     | [HttpClientDemo] | [Local] : 服务器收到的自定义请求头: DemoScript
+[TIME] | INFO     | [HttpClientDemo] : 
+--- 3. 演示代理请求 (需配置好 PROXY_URL) ---
+[TIME] | INFO     | [HttpClientDemo] | [Proxy] : 代理请求成功！
+[TIME] | INFO     | [HttpClientDemo] | [Proxy] : 通过代理获取到的IP: {"ip":"xxx.xxx.xxx.xxx"}
+```
+
+*注意：预期结果中的IP地址和时间戳会根据您的实际网络环境和执行时间而变化。如果代理未配置，第三个示例可能会显示请求失败。*
+
 ### **1. 青龙面板 API (`openApi.py`)**
 
 `openApi.py` 模块提供了与青龙面板进行交互的全部能力，核心是 `openApiCommonMethod` (推荐) 和 `openApiMethod` (底层) 两个类。
@@ -546,17 +697,6 @@ export PUSHDEER_KEY="PDU123456789xxxx" # 替换成你自己的PushDeer Key
 
 ##### **完成!**
 至此，您已成功添加了一个全新的推送插件。当您在主脚本中调用 `SendMethod().send_all(...)` 时，程序会自动发现并执行您的 `PushDeerSender`。
-
----
-### **4. 其它模块**
-以下模块用法相对简单，在此提供简要说明和Demo。
-
-- **`http_client.py`**: 提供 `AsyncRequestManager` 类，用于发送异步HTTP请求。
-- **`script_executor.py`**: 提供 `ProcessManager` 类，用于异步执行和管理外部命令和脚本。
-- **`concurrency_utils.py`**: 提供 `RunMethod` 类，用于以指定的并发数批量执行异步任务。
-- **`async_file_utils.py`**: 提供 `FileMethod` 类，用于异步、安全地读写文件。
-- **`time_scheduler.py`**: 提供 `ServerTimeScheduler` 类，用于高精度定时任务。
-- **`user_agent_generator.py`**: 提供 `PhoneModel` 类，用于生成随机设备UA。
 
 ---
 

@@ -491,7 +491,7 @@ asyncio.run(main())
 
 本工具库的通知系统是插件化的，添加新的推送方式非常简单。
 
-1.  在 `function/push_plugins/` 目录下创建一个新的Python文件，例如 `my_pusher.py`。
+1.  在 `utils/push_plugins/` 目录下创建一个新的Python文件，例如 `my_pusher.py`。
 2.  在该文件中，创建一个继承自 `BaseSender` 的类。
 3.  实现 `is_enabled` 和 `send` 两个抽象方法。
 

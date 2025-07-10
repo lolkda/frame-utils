@@ -1166,3 +1166,172 @@ if __name__ == "__main__":
 [TIME] | INFO     | [UADemo] :   - App UA: jdapp;android;12.3.4;;;M/5.0;appBuild/100500;ef/1;ep/%7B%22hdid%22%3A%22JM9F1ywUPwflvMIpYPok0tt5...
 [TIME] | INFO     | [UADemo] :   - OkHttp UA: okhttp/3.12.1;jdmall;android;version/12.3.4;build/100500;
 ```
+
+---
+ **8. 异步文件工具 (`async_file_utils.py`)**
+
+`async_file_utils.py` 提供了一个静态工具类 `FileMethod`，用于执行**异步**且**并发安全**的文件操作。在 `asyncio` 环境中，当有多个协程可能同时写入同一个文件时，使用普通的文件操作会导致数据错乱或文件损坏。本模块通过内置的 `asyncio.Lock` 解决了这个问题，确保所有写操作都是原子性的，是处理配置文件、日志、缓存等场景的理想选择。
+
+## 核心功能 ✨
+
+- **完全异步**: 基于 `aiofiles` 库，所有文件读写操作均为非阻塞，不会影响 `asyncio` 事件循环的性能。
+- **并发安全**: 所有的写操作（`write_str`, `write_json`, `write_image`）都被一个全局锁保护，可以防止多个协程同时写入文件造成的数据损坏。
+- **智能JSON处理**: `write_json` 方法功能强大，可以自动判断是新建文件、更新现有字典，还是向现有列表追加数据。
+- **易于使用**: 所有方法均为类方法，无需实例化，通过 `FileMethod.method_name()`直接调用。
+- **多格式支持**: 支持文本 (`str`)、JSON (`dict`/`list`) 和二进制（如图片）文件的读写。
+
+## 方法详解
+
+### `async def read_str(cls, file_name: str, mode: str = "r") -> str`
+- **功能**: 异步读取一个文本文件的全部内容。
+- **参数**:
+  - `file_name` (`str`): 要读取的文件路径。
+  - `mode` (`str`, optional): 文件打开模式，默认为 `'r'` (只读)。
+
+### `async def write_str(cls, file_name: str, data: str, mode: str = "a")`
+- **功能**: **[并发安全]** 异步地将字符串写入文本文件。
+- **参数**:
+  - `file_name` (`str`): 要写入的文件路径。
+  - `data` (`str`): 要写入的字符串内容。
+  - `mode` (`str`, optional): 文件打开模式，默认为 `'a'` (追加)。可使用 `'w'` (覆盖写)。
+
+### `async def read_json(cls, file_name: str) -> Union[Dict, List]`
+- **功能**: 异步读取并解析一个JSON文件。
+- **返回**: 一个Python字典或列表。
+
+### `async def write_json(cls, file_name: str, updata: Union[Dict, List, str], newBuild: bool = False)`
+- **功能**: **[并发安全]** 以智能方式异步写入JSON文件。
+- **参数**:
+  - `file_name` (`str`): 要写入的文件路径。
+  - `updata` (`Union[Dict, List, str]`): 要写入或更新的数据。
+  - `newBuild` (`bool`, optional):
+    - `True`: 忽略原文件内容，直接用 `updata` 的内容创建或覆盖文件。
+    - `False` (默认):
+      - 如果原文件是JSON字典，则用 `updata` (必须是字典) 更新它。
+      - 如果原文件是JSON列表，则将 `updata` (可以是单个元素或列表) 追加到原列表末尾。
+
+### `async def write_image(cls, file_name: str, image: bytes)`
+- **功能**: **[并发安全]** 异步地将二进制数据（如图片内容）写入文件。
+- **参数**:
+  - `file_name` (`str`): 要保存的文件路径。
+  - `image` (`bytes`): 图片的二进制数据。
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将完整地展示 `FileMethod` 的所有核心功能，包括JSON的智能写入和并发安全测试。
+
+```python
+# async_file_demo.py
+import asyncio
+import os
+import json
+from utils.async_file_utils import FileMethod
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("FileDemo")
+JSON_FILE = "demo_data.json"
+TEXT_FILE = "concurrent_log.txt"
+
+async def json_operations_demo():
+    log.info("--- Demo 1: 演示智能JSON写入操作 ---")
+    
+    # 1. 使用 newBuild=True 创建一个新文件
+    initial_data = {"name": "Alice", "points": 100}
+    await FileMethod.write_json(JSON_FILE, initial_data, newBuild=True)
+    content_after_create = await FileMethod.read_str(JSON_FILE)
+    log.info(f"创建JSON文件后内容:\n{content_after_create}")
+    
+    # 2. 更新现有JSON字典
+    update_data = {"points": 120, "status": "active"}
+    await FileMethod.write_json(JSON_FILE, update_data)
+    content_after_update = await FileMethod.read_str(JSON_FILE)
+    log.info(f"更新字典后内容:\n{content_after_update}")
+    
+    # 3. 演示对列表的写入
+    initial_list = [{"id": 1}]
+    await FileMethod.write_json(JSON_FILE, initial_list, newBuild=True) # 先覆盖成列表
+    # 追加单个元素
+    await FileMethod.write_json(JSON_FILE, {"id": 2})
+    # 追加一个列表
+    await FileMethod.write_json(JSON_FILE, [{"id": 3}, {"id": 4}])
+    content_after_append = await FileMethod.read_str(JSON_FILE)
+    log.info(f"追加列表后内容:\n{content_after_append}")
+
+
+async def concurrent_write_demo():
+    log.info("\n--- Demo 2: 演示并发写入安全性 ---")
+    
+    # a. 定义一个简单的写入任务
+    async def write_task(task_id: int):
+        await FileMethod.write_str(TEXT_FILE, f"任务 {task_id} 写入成功\n", mode='a')
+
+    # b. 并发地启动10个写入任务
+    log.info(f"准备并发执行10个任务，向 '{TEXT_FILE}' 文件中写入内容...")
+    tasks = [write_task(i) for i in range(1, 11)]
+    await asyncio.gather(*tasks)
+    log.info("所有并发写入任务已完成。")
+
+    # c. 读取结果并验证
+    final_content = await FileMethod.read_str(TEXT_FILE)
+    lines = final_content.strip().split('\n')
+    log.info(f"最终文件内容行数: {len(lines)}")
+    log.info("由于锁的存在，所有10行内容都应被完整写入，不会出现数据交错或丢失。")
+
+
+async def main():
+    # 清理上次运行的测试文件
+    if os.path.exists(JSON_FILE): os.remove(JSON_FILE)
+    if os.path.exists(TEXT_FILE): os.remove(TEXT_FILE)
+
+    await json_operations_demo()
+    await concurrent_write_demo()
+    
+    # 再次清理测试文件
+    if os.path.exists(JSON_FILE): os.remove(JSON_FILE)
+    if os.path.exists(TEXT_FILE): os.remove(TEXT_FILE)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 预期的打印结果
+
+```
+[TIME] | INFO     | [FileDemo] : --- Demo 1: 演示智能JSON写入操作 ---
+[TIME] | INFO     | [FileDemo] : 创建JSON文件后内容:
+{
+    "name": "Alice",
+    "points": 100
+}
+[TIME] | INFO     | [FileDemo] : 更新字典后内容:
+{
+    "name": "Alice",
+    "points": 120,
+    "status": "active"
+}
+[TIME] | INFO     | [FileDemo] : 追加列表后内容:
+[
+    {
+        "id": 1
+    },
+    {
+        "id": 2
+    },
+    {
+        "id": 3
+    },
+    {
+        "id": 4
+    }
+]
+[TIME] | INFO     | [FileDemo] : 
+--- Demo 2: 演示并发写入安全性 ---
+[TIME] | INFO     | [FileDemo] : 准备并发执行10个任务，向 'concurrent_log.txt' 文件中写入内容...
+[TIME] | INFO     | [FileDemo] : 所有并发写入任务已完成。
+[TIME] | INFO     | [FileDemo] : 最终文件内容行数: 10
+[TIME] | INFO     | [FileDemo] : 由于锁的存在，所有10行内容都应被完整写入，不会出现数据交错或丢失。
+```
+*注意：在`concurrent_log.txt`文件中，10行内容的顺序可能是随机的，但每一行本身都是完整且独立的，这证明了并发锁的有效性。*

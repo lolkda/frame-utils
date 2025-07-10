@@ -1335,3 +1335,265 @@ if __name__ == "__main__":
 [TIME] | INFO     | [FileDemo] : 由于锁的存在，所有10行内容都应被完整写入，不会出现数据交错或丢失。
 ```
 *注意：在`concurrent_log.txt`文件中，10行内容的顺序可能是随机的，但每一行本身都是完整且独立的，这证明了并发锁的有效性。*
+
+---
+### **9. 青龙面板API (`openApi.py`)**
+
+`openApi.py` 模块提供了一个功能完备的客户端，用于通过代码与您的**青龙面板**进行交互。它封装了青龙的 OpenAPI，能够以异步方式轻松地管理面板中的环境变量、定时任务、配置文件等。无论您是需要简单地获取一个Cookie，还是进行复杂的环境和任务编排，本模块都能满足您的需求。
+
+## 核心功能 ✨
+
+- **多面板支持**: 可以在同一个脚本中配置并操作多个不同的青龙面板实例。
+- **自动Token管理**: 客户端会自动处理`auth.json`的认证流程，获取并缓存token，您无需关心认证细节。
+- **高级抽象方法**: `openApiCommonMethod` 类提供了如 `search_envs`, `update_envs`, `run_task` 等易于使用的高级方法，让常见操作一行代码即可完成。
+- **底层API访问**: `openApiMethod` 类保留了对 `GET`/`POST`/`PUT`/`DELETE` 等HTTP方法的直接访问能力，赋予您完全的控制力和灵活性。
+- **结构化返回**: 所有API的返回结果都经过解析，以Python字典或列表的形式提供，便于后续处理。
+
+## 配置
+
+在您的 `/env/config.sh` 文件中，可以配置一个或多个青龙面板实例。每个实例都使用 `OPENAPI_` 作为前缀，并通过一个唯一的名称（如 `JD`, `ELM`）来区分。
+
+```shell
+# --- 青龙面板OpenAPI配置 ---
+
+# 第一个面板实例，我们将其命名为 "JD"
+export OPENAPI_JD_NAME="我的JD面板"
+export OPENAPI_JD_HOST="[http://192.168.1.10:5700](http://192.168.1.10:5700)" # 替换为您的青龙地址
+export OPENAPI_JD_USER="your_client_id"       # 替换为您的Client ID
+export OPENAPI_JD_PASSWORD="your_client_secret" # 替换为您的Client Secret
+
+# (可选) 第二个面板实例，命名为 "ELM"
+# export OPENAPI_ELM_NAME="我的ELM面板"
+# export OPENAPI_ELM_HOST="[http://192.168.1.11:5700](http://192.168.1.11:5700)"
+# export OPENAPI_ELM_USER="another_client_id"
+# export OPENAPI_ELM_PASSWORD="another_client_secret"
+```
+
+## 核心用法流程
+
+1.  **导入**: `from utils.openApi import openApiCommonMethod` (推荐) 或 `openApiMethod`。
+2.  **实例化**: `ql_api = openApiCommonMethod()`。
+3.  **指定面板**: `ql_api.openApi_Use = "JD"`。这里的 `"JD"` 必须与您在 `config.sh` 中配置的 `OPENAPI_JD_...` 前缀名称完全一致。这是**至关重要**的一步。
+4.  **调用方法**: `await ql_api.some_method()`。
+
+---
+
+## `openApiCommonMethod` 类详解 (推荐)
+
+此类提供了最常用、最便捷的方法，隐藏了底层的API细节，是日常使用的首选。
+
+### 方法详解
+
+- **`async def get_cookie(self, ContainerName: str, name: str) -> List[str]`**
+  - **功能**: 快速获取指定面板中某个环境变量的所有值。
+  - **参数**:
+    - `ContainerName` (`str`): 面板前缀，如 `"JD"`。
+    - `name` (`str`): 环境变量名，如 `"JD_COOKIE"`。
+  - **返回**: 一个包含所有同名环境变量值的字符串列表 `List[str]`。
+
+- **`async def search_envs(self, keyword: str) -> List[Dict]`**
+  - **功能**: 根据关键词模糊搜索环境变量。
+  - **参数**: `keyword` (`str`) - 搜索的关键词。
+  - **返回**: 包含环境变量对象字典的列表 `List[Dict]`。例如:
+    ```json
+    [{
+      "id": 123,
+      "value": "pt_key=...;",
+      "name": "JD_COOKIE",
+      "remarks": "用户1",
+      "status": 0,
+      "timestamp": "2025-07-10T02:30:00.000Z"
+    }]
+    ```
+
+- **`async def update_envs(self, name: str, value: str, remarks: str, add_env: bool, keyword: str) -> None`**
+  - **功能**: 更新或新增一个环境变量。它会先通过 `keyword` 搜索，如果找到就更新，找不到且 `add_env=True` 则新增。
+  - **参数**:
+    - `name` (`str`): 环境变量的名称。
+    - `value` (`str`): 环境变量的值。
+    - `remarks` (`str`, optional): 备注。
+    - `add_env` (`bool`, optional): 如果找不到是否新增，默认为`False`。
+    - `keyword` (`str`): 用于定位要更新的环境变量的关键词。
+
+- **`async def disable_envs(self, id: Union[int, List[int]]) -> None`**
+  - **功能**: 禁用一个或多个环境变量。
+  - **参数**: `id` - 单个环境变量ID (`int`) 或 ID列表 (`List[int]`)。
+
+- **`async def EnableEnvs(self, id: Union[int, List[int]]) -> None`**
+  - **功能**: 启用一个或多个环境变量。
+  - **参数**: `id` - 单个环境变量ID (`int`) 或 ID列表 (`List[int]`)。
+
+- **`async def search_task(self, keyword: str) -> Dict`**
+  - **功能**: 根据关键词搜索定时任务。
+  - **返回**: `Dict` - 包含任务列表的字典，任务数据在 `data['data']` 中。
+
+- **`async def run_crons_task(self, id: Union[str, List[str]]) -> None`**
+  - **功能**: 运行一个或多个定时任务。
+  - **参数**: `id` - 单个任务ID (`str`) 或 ID列表 (`List[str]`)。
+
+### 实战测试 Demo (`openApiCommonMethod`)
+
+这个Demo将演示一套完整的操作流程：新增 -> 查询 -> 更新 -> 禁用 -> 启用 -> 删除，以及任务的查询和执行。
+
+```python
+# openapi_common_demo.py
+import asyncio
+from utils.openApi import openApiCommonMethod
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("QL_Common_Demo")
+
+async def main():
+    # 实例化
+    ql_api = openApiCommonMethod()
+    # 指定要操作的面板 (config.sh中的 "JD" 前缀)
+    ql_api.openApi_Use = "JD"
+    
+    var_name = "MY_API_TEST_VAR"
+    
+    # 确保清理之前的测试变量
+    log.info(f"--- 准备阶段：清理可能存在的旧测试变量 ---")
+    old_envs = await ql_api.search_envs(var_name)
+    if old_envs:
+        old_ids = [env['id'] for env in old_envs]
+        await ql_api.delete_openApi('envs', old_ids)
+        log.info(f"已清理 {len(old_ids)} 个旧的测试变量。")
+
+    log.info(f"\n--- 1. 新增环境变量 '{var_name}' ---")
+    await ql_api.update_envs(
+        name=var_name,
+        value="initial_value_123",
+        remarks="这是一个API测试变量",
+        add_env=True, 
+        keyword=var_name
+    )
+    log.info(f"变量 '{var_name}' 已创建。")
+
+    log.info(f"\n--- 2. 搜索并确认变量 ---")
+    envs = await ql_api.search_envs(var_name)
+    if not envs:
+        log.error("致命错误：未能找到刚刚创建的变量。")
+        return
+    
+    env_id = envs[0]['id']
+    log.info(f"找到变量，ID: {env_id}, 值为: '{envs[0]['value']}'")
+
+    log.info(f"\n--- 3. 更新变量 ---")
+    await ql_api.update_envs(name=var_name, value="updated_value_456", keyword=var_name, remarks="已被更新")
+    log.info("变量值已更新。")
+
+    log.info(f"\n--- 4. 禁用与启用 ---")
+    await ql_api.disable_envs(env_id)
+    log.info(f"变量 ID:{env_id} 已禁用。")
+    await asyncio.sleep(1) 
+    await ql_api.EnableEnvs(env_id)
+    log.info(f"变量 ID:{env_id} 已重新启用。")
+    
+    log.info(f"\n--- 5. 运行一个定时任务 ---")
+    task_keyword = "签到" # 请替换为您面板中真实存在的任务关键词
+    tasks_res = await ql_api.search_task(task_keyword)
+    if not tasks_res or not tasks_res.get('data'):
+        log.warning(f"未找到包含 '{task_keyword}' 的任务，任务操作跳过。")
+    else:
+        task = tasks_res['data'][0]
+        log.info(f"找到任务: '{task['name']}' (ID: {task['id']})，准备运行...")
+        await ql_api.run_crons_task(task['id'])
+        log.info("任务已触发运行。")
+
+    log.info(f"\n--- 6. 清理测试变量 ---")
+    await ql_api.delete_openApi('envs', [env_id])
+    log.info(f"测试变量 ID:{env_id} 已被删除。")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+#### **预期打印结果**
+
+```
+[TIME] | INFO     | [QL_Common_Demo] : --- 准备阶段：清理可能存在的旧测试变量 ---
+[TIME] | INFO     | [QL_Common_Demo] : 
+--- 1. 新增环境变量 'MY_API_TEST_VAR' ---
+[TIME] | INFO     | [QL_Common_Demo] : 变量 'MY_API_TEST_VAR' 已创建。
+[TIME] | INFO     | [QL_Common_Demo] : 
+--- 2. 搜索并确认变量 ---
+[TIME] | INFO     | [QL_Common_Demo] : 找到变量，ID: <some_id>, 值为: 'initial_value_123'
+[TIME] | INFO     | [QL_Common_Demo] : 
+--- 3. 更新变量 ---
+[TIME] | INFO     | [QL_Common_Demo] : 变量值已更新。
+[TIME] | INFO     | [QL_Common_Demo] : 
+--- 4. 禁用与启用 ---
+[TIME] | INFO     | [QL_Common_Demo] : 变量 ID:<some_id> 已禁用。
+[TIME] | INFO     | [QL_Common_Demo] : 变量 ID:<some_id> 已重新启用。
+[TIME] | INFO     | [QL_Common_Demo] : 
+--- 5. 运行一个定时任务 ---
+[TIME] | INFO     | [QL_Common_Demo] : 找到任务: '京东签到' (ID: <task_id>)，准备运行...
+[TIME] | INFO     | [QL_Common_Demo] : 任务已触发运行。
+[TIME] | INFO     | [QL_Common_Demo] : 
+--- 6. 清理测试变量 ---
+[TIME] | INFO     | [QL_Common_Demo] : 测试变量 ID:<some_id> 已被删除。
+```
+
+---
+#### **`openApiMethod` (底层接口 - 进阶)**
+
+此类提供了对青龙 OpenAPI 端点的直接 `GET/PUT/POST/DELETE` 访问，适合需要高度自定义请求或调用 `openApiCommonMethod` 未封装接口的场景。
+
+- **`get_openApi(query, params=None)`**: 执行 `GET` 请求。
+- **`put_openApi(query, json)`**: 执行 `PUT` 请求。
+- **`post_openApi(query, json)`**: 执行 `POST` 请求。
+- **`delete_openApi(query, json)`**: 执行 `DELETE` 请求。
+
+#### **测试Demo (`openApiMethod`)**
+```python
+# openapi_low_level_demo.py
+import asyncio
+from utils.openApi import openApiMethod
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("QL_LowLevel_Demo")
+
+async def main():
+    ql_api = openApiMethod()
+    ql_api.openApi_Use = "JD"
+
+    log.info("--- 1. POST: 新增一个环境变量 ---")
+    new_env_data = [{"name": "LOW_LEVEL_VAR", "value": "test", "remarks": "底层接口测试"}]
+    await ql_api.post_openApi('envs', new_env_data)
+    log.info("环境变量已新增。")
+
+    log.info("\n--- 2. GET: 搜索该变量 ---")
+    envs = await ql_api.get_openApi('envs', params={'searchValue': 'LOW_LEVEL_VAR'})
+    env_to_operate = envs['data'][0] if envs and envs.get('data') else None
+    if not env_to_operate:
+        log.error("未能找到变量。")
+        return
+    log.info(f"找到变量，ID: {env_to_operate['id']}")
+    
+    log.info("\n--- 3. PUT: 更新该变量 ---")
+    env_to_operate['value'] = 'updated_by_put'
+    await ql_api.put_openApi('envs', env_to_operate)
+    log.info("环境变量已更新。")
+
+    log.info("\n--- 4. DELETE: 删除该变量 ---")
+    await ql_api.delete_openApi('envs', [env_to_operate['id']])
+    log.info("环境变量已删除。")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+#### **预期打印结果**
+```
+[TIME] | INFO     | [QL_LowLevel_Demo] : --- 1. POST: 新增一个环境变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已新增。
+[TIME] | INFO     | [QL_LowLevel_Demo] : 
+--- 2. GET: 搜索该变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] : 找到变量，ID: 124
+[TIME] | INFO     | [QL_LowLevel_Demo] : 
+--- 3. PUT: 更新该变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已更新。
+[TIME] | INFO     | [QL_LowLevel_Demo] : 
+--- 4. DELETE: 删除该变量 ---
+[TIME] | INFO     | [QL_LowLevel_Demo] : 环境变量已删除。
+```

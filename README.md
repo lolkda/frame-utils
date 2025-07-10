@@ -449,5 +449,3 @@ class MyPusherSender(BaseSender):
 
 4.  在 `env/config.sh` 中添加对应的环境变量 (`MY_PUSHER_ISOPEN`, `MY_PUSHER_APIKEY`)。
 5.  完成！`SendMethod` 会自动加载并使用你的新插件。
-
----

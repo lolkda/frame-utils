@@ -399,3 +399,155 @@ if __name__ == "__main__":
 [TIME] | ERROR    | [Main] : 捕获到致命错误: division by zero，但程序将继续运行。
 [TIME] | INFO     | [Main] : 主程序结束。
 ```
+
+---
+### **3. 异步并发控制器 (`concurrency_utils.py`)**
+
+`concurrency_utils.py` 模块提供了一套强大的工具，用于优雅地管理和执行大量异步任务。它的核心是 `RunMethod` 类，能够以指定的并发数（即“线程数”）分批执行任务，并能控制每批任务之间的等待间隔，是防止API速率限制、管理系统资源和构建高效率自动化脚本的关键。
+
+## 核心功能 ✨
+
+- **并发控制**: 通过 `Semaphore` 机制，精确控制同时运行的异步任务数量，避免瞬间请求过多导致目标服务器过载或IP被封锁。
+- **任务批处理**: 自动将大量任务分割成多个小批次，逐批执行，使代码逻辑更清晰。
+- **可配置等待**: 可以在每批任务执行完毕后，设置一个固定的等待时间，用于模拟人类操作间隔或应对更严格的速率限制。
+- **标准化出入参**: 通过 `ReqConcParam` 和 `ReqConcResult` 数据类，将任务的配置和结果进行结构化封装，使代码更易于维护和理解。
+- **灵活的参数传递**: 支持向并发执行的函数传递固定的额外参数。
+
+## 核心类与方法详解
+
+### 数据类 (Data Classes)
+
+#### `ReqConcParam(func, task, thread, wait, **kwargs)`
+这是一个配置类，用于将并发任务所需的所有参数打包成一个对象。
+
+- **参数**:
+  - `func` (`Callable`): **必需**。您想要并发执行的那个异步函数。
+  - `task` (`List` or `Tuple`): **必需**。一个包含所有任务参数的可迭代对象。运行器会遍历这个列表，并将其中每一个元素作为 `func` 的第一个参数传入。
+  - `thread` (`int`): **必需**。最大并发数，即同一时间最多有多少个 `func` 在运行。
+  - `wait` (`int` or `float`, optional): 每执行完一批任务后的等待秒数，默认为 `0` (不等待)。
+  - `**kwargs`: (optional) 任意数量的关键字参数，这些参数会作为固定参数传递给每一次 `func` 的调用。
+
+#### `ReqConcResult(result, task)`
+这是 `ReqConcRun` 运行器返回的每一项结果的包装类，便于您将结果与原始任务对应起来。
+
+- **属性**:
+  - `result` (`any`): `func` 函数执行后的返回值。
+  - `task` (`any`): 触发这次执行的原始任务项（来自 `ReqConcParam` 中的 `task` 列表）。
+
+### 主运行器类 `RunMethod`
+
+这个类包含了执行并发任务的核心方法。所有方法都是类方法，通过 `RunMethod.method_name()` 直接调用。
+
+#### `async def ReqConcRun(cls, param: ReqConcParam)`
+这是最常用、最推荐的并发运行器。它是一个**异步生成器**，你需要使用 `async for` 来迭代它返回的批处理结果。
+
+- **功能**: 接收一个 `ReqConcParam` 对象，根据其配置（并发数、等待时间等）来执行任务列表。
+- **返回**: 它会逐批 `yield` 结果。每一批的结果是一个列表，列表中的每个元素都是一个 `ReqConcResult` 对象。
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将完整地展示如何使用 `ReqConcRun` 来并发执行一组模拟的API请求，并处理返回结果。
+
+```python
+# concurrency_demo.py
+import asyncio
+import time
+from typing import Dict, List, Coroutine
+
+from utils.concurrency_utils import RunMethod, ReqConcParam, ReqConcResult
+from utils.logging_utils import PrintMethodClass
+
+# 初始化日志记录器，以便清晰地看到执行流程
+log = PrintMethodClass("ConcurrencyDemo")
+
+# 1. 定义一个模拟耗时的 "工人" 异步函数
+# 它接收一个任务项（字典）和一些额外的固定参数
+async def worker_task(item: Dict, session_id: str, timeout: int) -> Dict:
+    """
+    模拟一个需要执行的网络请求或IO密集型任务。
+    """
+    task_id = item['id']
+    delay = item['delay']
+    log.info(f"[会话: {session_id}] 任务 {task_id} 开始，预计耗时 {delay} 秒...")
+    
+    # 模拟实际工作
+    await asyncio.sleep(delay)
+    
+    log.info(f"任务 {task_id} 完成！")
+    return {"task_id": task_id, "status": "ok", "completed_at": time.time()}
+
+async def main():
+    log.info("--- 准备并发任务 ---")
+    
+    # 2. 准备一批需要处理的任务数据
+    tasks_to_run: List[Dict] = [
+        {'id': 1, 'delay': 2.0}, {'id': 2, 'delay': 1.0}, {'id': 3, 'delay': 2.5},
+        {'id': 4, 'delay': 1.5}, {'id': 5, 'delay': 0.5}, {'id': 6, 'delay': 3.0},
+        {'id': 7, 'delay': 1.0},
+    ]
+
+    # 3. 使用 ReqConcParam 对任务进行配置
+    conc_params = ReqConcParam(
+        func=worker_task,       # 要执行的函数
+        task=tasks_to_run,      # 任务列表
+        thread=3,               # 最大并发数为 3
+        wait=2,                 # 每批任务完成后，等待 2 秒
+        session_id="session-abc", # 这是一个将传递给每个worker_task的固定参数
+        timeout=30              # 同上
+    )
+    log.info(f"任务配置完毕: {len(tasks_to_run)}个任务，并发数{conc_params.thread}，批间等待{conc_params.wait}秒。")
+
+    # 4. 使用 async for 迭代运行器，并处理每批返回的结果
+    start_time = time.time()
+    async for batch_result in RunMethod.ReqConcRun(conc_params):
+        log.info(f"--- 一批任务执行完毕 (耗时: {time.time() - start_time:.2f}s) ---")
+        for res in batch_result:
+            # res 是 ReqConcResult 对象
+            log.info(f"  [结果] 任务 {res.task['id']} 已完成, 返回状态: {res.result['status']}")
+    
+    end_time = time.time()
+    log.info(f"\n所有任务执行完毕，总耗时: {end_time - start_time:.2f}s")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 预期的打印结果
+
+```
+[TIME] | INFO     | [ConcurrencyDemo] : --- 准备并发任务 ---
+[TIME] | INFO     | [ConcurrencyDemo] : 任务配置完毕: 7个任务，并发数3，批间等待2秒。
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 1 开始，预计耗时 2.0 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 2 开始，预计耗时 1.0 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 3 开始，预计耗时 2.5 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 2 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 1 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 3 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : --- 一批任务执行完毕 (耗时: 2.52s) ---
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 1 已完成, 返回状态: ok
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 2 已完成, 返回状态: ok
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 3 已完成, 返回状态: ok
+(此处会等待2秒)
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 4 开始，预计耗时 1.5 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 5 开始，预计耗时 0.5 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 6 开始，预计耗时 3.0 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 5 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 4 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 6 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : --- 一批任务执行完毕 (耗时: 7.55s) ---
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 4 已完成, 返回状态: ok
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 5 已完成, 返回状态: ok
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 6 已完成, 返回状态: ok
+(此处会等待2秒)
+[TIME] | INFO     | [ConcurrencyDemo] : [会话: session-abc] 任务 7 开始，预计耗时 1.0 秒...
+[TIME] | INFO     | [ConcurrencyDemo] : 任务 7 完成！
+[TIME] | INFO     | [ConcurrencyDemo] : --- 一批任务执行完毕 (耗时: 10.57s) ---
+[TIME] | INFO     | [ConcurrencyDemo] :   [结果] 任务 7 已完成, 返回状态: ok
+[TIME] | INFO     | [ConcurrencyDemo] : 
+所有任务执行完毕，总耗时: 10.57s
+```
+
+*注意：预期结果中的总耗时和日志时间戳会因您的机器性能而略有不同，但执行的批次和顺序逻辑将保持一致。*

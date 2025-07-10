@@ -907,3 +907,129 @@ if __name__ == "__main__":
 ---
 ```
 *注意：结果中的PID和时间戳会根据您的实际执行情况而变化。*
+
+---
+# ### **6. 高精度异步任务调度器 (`time_scheduler.py`)**
+
+`time_scheduler.py` 提供了一个专为时间敏感型任务设计的 `ServerTimeScheduler` 类。它的核心价值在于，它不依赖可能存在偏差的本地计算机时钟，而是通过一个您指定的函数（如获取京东服务器时间的API）来**与服务器时间进行同步**。这使得它非常适合用于执行需要精确到秒甚至毫秒的定时任务，例如电商平台的“秒杀”活动。
+
+## 核心功能 ✨
+
+- **服务器时间同步**: 彻底解决本地时钟不准导致的任务触发延迟或提前问题。
+- **高精度等待**: 能够计算并等待到指定时、分、秒的精确时刻，精度取决于网络延迟。
+- **灵活的调度模式**:
+    - `wait_until`: 用于“抢购”类场景，等待一个精确的时间点。
+    - `sleep_until_next_active_period`: 用于“周期任务”类场景，等待进入下一个指定的活跃时间段。
+- **异步非阻塞**: 完全基于 `asyncio`，在等待期间不会阻塞事件循环，可以同时执行其他任务。
+
+## 核心类与方法详解
+
+### `ServerTimeScheduler(func: Union[Callable, Awaitable])`
+
+这是您将要使用的核心调度器类。
+
+- **初始化参数**:
+  - `func` (`Callable` or `Awaitable`): **必需**。这是一个用于获取**服务器时间**的异步函数。此函数必须返回一个 **13位的毫秒级时间戳** (整数或浮点数)。在本项目中，通常传入 `JdApiClient().Jd_Time`。调度器会通过调用此函数来校准自己的时钟。
+
+---
+### 主要调度方法
+
+#### `async def wait_until(self, hour: int, minute: int = 0, second: int = 0, microsecond: int = 0) -> float`
+
+这是最高精度的方法，用于等待一个**精确的未来时间点**。
+
+- **功能**: 计算当前时间到下一个指定 `时:分:秒` 的时间差，并异步休眠直到那一刻。如果指定的时间在今天已经过去，它会自动计算并等待到**第二天的这个时间**。
+- **参数**:
+  - `hour` (`int`): 目标小时 (0-23)。
+  - `minute` (`int`, optional): 目标分钟 (0-59)。
+  - `second` (`int`, optional): 目标秒 (0-59)。
+  - `microsecond` (`int`, optional): 目标微秒。
+- **返回**:
+  - `float`: 它实际等待到的目标时刻的服务器时间戳（秒）。
+
+#### `async def sleep_until_next_active_period(self, active_hours: Optional[List[str]] = None) -> None`
+
+用于等待进入下一个**活跃的时间段**，适合不需要精确到秒的周期性任务。
+
+- **功能**: 检查当前时间是否在 `active_hours` 定义的时间段内。如果不在，则计算并休眠，直到下一个最近的活跃时间段开始。
+- **参数**:
+  - `active_hours` (`List[str]`, optional): 一个定义了活跃小时范围的字符串列表。格式说明：
+    - `"8"`: 表示 8:00:00 到 8:59:59 这个小时都算活跃。
+    - `"10-14"`: 表示从 10:00:00 到 14:59:59 都算活跃。
+    - 如果不提供此参数，则默认等待到下一个整点小时。
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将完整地展示如何初始化调度器，并使用 `wait_until` 方法实现一个精确的定时任务。
+
+```python
+# scheduler_demo.py
+import asyncio
+from datetime import datetime, timedelta
+from utils.time_scheduler import ServerTimeScheduler
+from utils.jd_api import JdApiClient # 导入京东API客户端以获取服务器时间
+from utils.logging_utils import PrintMethodClass
+
+# 初始化日志记录器
+log = PrintMethodClass("SchedulerDemo")
+
+# 1. 准备一个高精度任务
+async def high_precision_task():
+    """这个任务将在精确的时刻被触发"""
+    log.info(f"任务被触发！精确的服务器时间大约是: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
+
+# 主执行函数
+async def main():
+    log.info("--- 初始化高精度调度器 ---")
+    # 2. 实例化 JdApiClient 以便调用其时间同步方法
+    jd_client = JdApiClient()
+    
+    # 3. 实例化调度器，并将 jd_client.Jd_Time 作为时间源函数传入
+    scheduler = ServerTimeScheduler(func=jd_client.Jd_Time)
+    
+    # 4. 手动同步一次时间并打印，以观察其工作原理
+    # 这一步在实际使用 wait_until 时会自动调用，这里仅为演示
+    try:
+        server_time_ms = await scheduler.sync_time()
+        server_dt = datetime.fromtimestamp(server_time_ms / 1000)
+        log.info(f"手动同步时间成功，当前服务器时间约为: {server_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception as e:
+        log.error(f"时间同步失败，请检查网络或时间源函数！错误: {e}")
+        return
+
+    # 5. 设置一个将在5秒后执行的定时任务
+    now = datetime.now()
+    target_time = now + timedelta(seconds=5)
+    log.info(f"当前本地时间: {now.strftime('%H:%M:%S')}, 准备等待到未来的: {target_time.strftime('%H:%M:%S')}")
+    
+    # 6. 调用 wait_until，它会精确计算需要休眠的时间
+    await scheduler.wait_until(
+        hour=target_time.hour,
+        minute=target_time.minute,
+        second=target_time.second
+    )
+    
+    # 7. 当 wait_until 执行完毕后，立刻执行我们的高精度任务
+    await high_precision_task()
+    
+    log.info("Demo 结束。")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 预期的打印结果
+
+```
+[TIME] | INFO     | [SchedulerDemo] : --- 初始化高精度调度器 ---
+[TIME] | INFO     | [SchedulerDemo] | [jdtime] : 手动同步时间成功，当前服务器时间约为: 2025-07-10 13:24:00
+[TIME] | INFO     | [SchedulerDemo] : 当前本地时间: 13:24:00, 准备等待到未来的: 13:24:05
+[TIME] | INFO     | [SchedulerDemo] | [jdtime] : 需要等待 4.98 秒，直到 2025-07-10 13:24:05
+(程序会在这里安静地等待大约5秒)
+[TIME] | INFO     | [SchedulerDemo] : 任务被触发！精确的服务器时间大约是: 2025-07-10 13:24:05.001234
+[TIME] | INFO     | [SchedulerDemo] : Demo 结束。
+```
+*注意：结果中的时间戳会根据您的实际执行时间而变化，但 `wait_until` 会确保 `high_precision_task` 在接近目标时间点 `XX:XX:05` 时被精确触发。*

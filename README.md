@@ -733,3 +733,177 @@ demo_check_env()
 [TIME] | INFO     | [EnvDemo] : 加载后 app.str_attr = 'hello world'
 [TIME] | INFO     | [EnvDemo] : 加载后 app.int_attr = 123
 ```
+
+---
+### **5. 异步进程管理器 (`script_executor.py`)**
+
+`script_executor.py` 提供了一个强大的 `ProcessManager` 类，用于以**异步、非阻塞**的方式启动、监控和管理外部脚本或系统命令。这对于需要执行耗时任务（如运行一个复杂的Python脚本、Node.js应用或Shell脚本）而又不想阻塞主程序（例如一个正在监听网络请求的服务器）的场景至关重要。
+
+## 核心功能 ✨
+
+- **非阻塞执行**: 启动的脚本或命令会作为一个独立的子进程在后台运行，不会阻塞主程序的 `asyncio` 事件循环。
+- **智能脚本识别**: `run_script` 方法能根据文件后缀（`.py`, `.js`, `.sh`）自动选择合适的解释器来执行。
+- **完整的生命周期管理**: 可以启动、监控、等待、甚至提前终止子进程。
+- **丰富的过程信息**: `ProcessInfo` 数据类完整地记录了进程的PID、状态、开始/结束时间、返回码以及完整的 `stdout` (标准输出) 和 `stderr` (标准错误) 。
+- **回调支持**: 可以在进程执行完毕后自动触发一个回调函数，用于处理结果或启动下一个任务，实现任务链。
+- **健壮的错误处理**: 能捕获子进程的错误输出和非零返回码，便于主程序进行判断和处理。
+
+## 核心类与方法详解
+
+### `ProcessInfo` 数据类
+这是 `ProcessManager` 中每个进程的信息载体，当您等待一个进程结束后，获取到的就是这个对象。
+
+- **核心属性**:
+  - `pid` (`int`): 进程的唯一标识符。
+  - `script_path` (`str`): 被执行的脚本路径。
+  - `status` (`str`): 进程的当前状态 (`running`, `completed`, `failed`, `killed`)。
+  - `start_time` / `end_time` (`datetime`): 进程的开始与结束时间。
+  - `return_code` (`int`): 进程的退出码。通常 `0` 表示成功，非 `0` 表示有错误。
+  - `stdout` (`str`): 子进程的标准输出内容。
+  - `stderr` (`str`): 子进程的标准错误内容。
+
+### `ProcessManager` 类
+这是与进程交互的主控制器。
+
+#### `async def run_script(self, script_path, run_method='auto', args=[], callback=None, **kwargs)`
+最常用的方法，用于异步执行一个脚本文件。
+
+- **参数**:
+  - `script_path` (`str`): **必需**。脚本的路径。
+  - `run_method` (`str`, optional): 运行方式，`'auto'` (默认) 会根据文件后缀自动检测。也可以强制指定为 `'python'`, `'node'`, `'bash'` 等。
+  - `args` (`List[str]`, optional): 一个字符串列表，作为命令行参数传递给脚本。
+  - `callback` (`Callable`, optional): 一个函数，当进程执行结束后会被自动调用。该函数应接收一个 `ProcessInfo` 对象作为其唯一参数。
+
+- **返回**:
+  - `int`: 新创建的子进程的PID。
+
+#### `async def run_command(self, command: List[str], ...)`
+更底层的执行方法，用于运行任何系统命令。
+
+- **参数**:
+  - `command` (`List[str]`): **必需**。一个包含命令及其所有参数的列表，例如 `['ls', '-l', '/tmp']`。
+
+- **返回**:
+  - `int`: 新创建的子进程的PID。
+
+#### `async def wait_for_process(self, pid: int, timeout: float = None) -> ProcessInfo`
+异步地等待一个已启动的进程执行完毕。
+
+- **功能**: 调用此方法会使当前协程暂停，直到指定的 `pid` 进程结束，然后才会继续执行。
+- **参数**:
+  - `pid` (`int`): `run_script` 或 `run_command` 返回的进程ID。
+  - `timeout` (`float`, optional): 最大等待时间（秒）。如果超时，会引发 `TimeoutError`。
+- **返回**:
+  - `ProcessInfo`: 包含该进程完整执行结果的信息对象。
+
+#### `async def kill_process(self, pid: int) -> bool`
+优雅地终止一个正在运行的进程。
+
+---
+
+## 实战测试 Demo
+
+下面的Demo将完整地展示如何使用 `ProcessManager` 启动一个带参数的Python脚本，在不阻塞主程序的情况下等待它完成，并通过回调函数和 `wait_for_process` 两种方式获取其最终结果。
+
+```python
+# executor_demo.py
+import asyncio
+import sys
+from utils.script_executor import ProcessManager, ProcessInfo
+from utils.logging_utils import PrintMethodClass
+
+log = PrintMethodClass("ExecutorDemo")
+
+# 1. 为了演示，我们先动态创建一个简单的Python脚本文件
+DUMMY_SCRIPT_PATH = "my_test_script.py"
+with open(DUMMY_SCRIPT_PATH, "w", encoding="utf-8") as f:
+    f.write('import time, sys\n')
+    f.write('print(f"脚本开始运行，接收到参数: {sys.argv[1:]}")\n')
+    f.write('sys.stderr.write("这是一条错误输出信息\\n")\n') # 模拟错误输出
+    f.write('time.sleep(3)\n')
+    f.write('print("脚本运行结束。")\n')
+    f.write('sys.exit(0)\n') # 模拟正常退出
+
+# 2. 定义一个回调函数，它将在脚本结束后被自动调用
+def my_process_callback(info: ProcessInfo):
+    """这个函数会在子进程结束后被触发"""
+    log.info(f"--- 监听到进程 {info.pid} 结束（回调函数触发） ---")
+    log.info(f"  - 脚本路径: {info.script_path}")
+    log.info(f"  - 最终状态: {info.status}")
+    log.info(f"  - 退出码: {info.return_code}")
+    log.info("--- 回调结束 ---")
+
+async def main():
+    # 3. 实例化进程管理器
+    manager = ProcessManager()
+    
+    log.info("准备以非阻塞方式运行外部Python脚本...")
+    
+    # 4. 使用 run_script 启动脚本，并传入参数和回调函数
+    pid = await manager.run_script(
+        script_path=DUMMY_SCRIPT_PATH,
+        args=['param1', 'value1'], # 传递给脚本的命令行参数
+        callback=my_process_callback
+    )
+    log.info(f"脚本已在后台启动，其进程PID为: {pid}")
+    
+    # 5. 在等待子进程的同时，主程序可以继续执行其他任务
+    log.info("主程序没有被阻塞，现在执行其他异步任务...")
+    await asyncio.sleep(1) # 模拟其他工作
+    log.info("主程序的其他任务已完成，现在开始等待子进程结束。")
+
+    # 6. 使用 wait_for_process 等待脚本执行完成，并获取最终的详细信息
+    try:
+        final_info = await manager.wait_for_process(pid)
+        
+        log.info(f"\n--- 主程序通过 wait_for_process 获取到最终结果 (PID: {final_info.pid}) ---")
+        log.info(f"状态: {final_info.status}")
+        log.info(f"返回码: {final_info.return_code}")
+        log.info(f"开始时间: {final_info.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        log.info(f"结束时间: {final_info.end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        log.info(f"标准输出 (stdout):\n---\n{final_info.stdout.strip()}\n---")
+        log.info(f"标准错误 (stderr):\n---\n{final_info.stderr.strip()}\n---")
+
+    except Exception as e:
+        log.error(f"等待进程时发生错误: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 预期的打印结果
+
+```
+[TIME] | INFO     | [ExecutorDemo] : 准备以非阻塞方式运行外部Python脚本...
+[TIME] | INFO     | [ExecutorDemo] : 执行命令: <...>/python my_test_script.py param1 value1
+[TIME] | INFO     | [ExecutorDemo] : 命令已启动, PID: <pid_number>
+[TIME] | INFO     | [ExecutorDemo] | [PID: <pid_number>] : 监控任务已启动。
+[TIME] | INFO     | [ExecutorDemo] : 脚本已在后台启动，其进程PID为: <pid_number>
+[TIME] | INFO     | [ExecutorDemo] : 主程序没有被阻塞，现在执行其他异步任务...
+[TIME] | INFO     | [ExecutorDemo] : 主程序的其他任务已完成，现在开始等待子进程结束。
+[TIME] | INFO     | [ExecutorDemo] : 正在等待进程 [<pid_number>] 完成...
+[TIME] | INFO     | [ExecutorDemo] | [PID: <pid_number>] : 命令执行完成。
+[TIME] | INFO     | [ExecutorDemo] : --- 监听到进程 <pid_number> 结束（回调函数触发） ---
+[TIME] | INFO     | [ExecutorDemo] :   - 脚本路径: my_test_script.py
+[TIME] | INFO     | [ExecutorDemo] :   - 最终状态: completed
+[TIME] | INFO     | [ExecutorDemo] :   - 退出码: 0
+[TIME] | INFO     | [ExecutorDemo] : --- 回调结束 ---
+[TIME] | INFO     | [ExecutorDemo] | [PID: <pid_number>] : 监控任务已结束。
+[TIME] | INFO     | [ExecutorDemo] : 进程 [<pid_number>] 已完成，等待结束。
+[TIME] | INFO     | [ExecutorDemo] : 
+--- 主程序通过 wait_for_process 获取到最终结果 (PID: <pid_number>) ---
+[TIME] | INFO     | [ExecutorDemo] : 状态: completed
+[TIME] | INFO     | [ExecutorDemo] : 返回码: 0
+[TIME] | INFO     | [ExecutorDemo] : 开始时间: 2025-07-10 13:20:35
+[TIME] | INFO     | [ExecutorDemo] : 结束时间: 2025-07-10 13:20:38
+[TIME] | INFO     | [ExecutorDemo] : 标准输出 (stdout):
+---
+脚本开始运行，接收到参数: ['param1', 'value1']
+脚本运行结束。
+---
+[TIME] | INFO     | [ExecutorDemo] : 标准错误 (stderr):
+---
+这是一条错误输出信息
+---
+```
+*注意：结果中的PID和时间戳会根据您的实际执行情况而变化。*

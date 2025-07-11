@@ -164,7 +164,7 @@ async def main():
     log.info("--- 1. 发送一个简单的 GET 请求 ---")
     get_params = {
         "method": "GET",
-        "url": "[https://httpbin.org/get](https://httpbin.org/get)",
+        "url": "https://httpbin.org/get",
         "params": {"param1": "value1", "source": "demo"},
         "headers": {"Accept": "application/json"}
     }
@@ -181,7 +181,7 @@ async def main():
     log.info("\n--- 2. 发送一个带 JSON Body 的 POST 请求 ---")
     post_params = {
         "method": "POST",
-        "url": "[https://httpbin.org/post](https://httpbin.org/post)",
+        "url": "https://httpbin.org/post",
         "json": {"user": "test_user", "id": 12345},
         "headers": {"X-Request-By": "DemoScript"}
     }
@@ -198,7 +198,7 @@ async def main():
     log.info("\n--- 3. 演示代理请求 (需配置好 PROXY_URL) ---")
     proxy_params = {
         "method": "GET",
-        "url": "[https://api.ipify.org?format=json](https://api.ipify.org?format=json)",
+        "url": "https://api.ipify.org?format=json",
         "proxy": True # 明确指示使用代理
     }
     response_proxy = await req.async_curl_requests(proxy_params, "TestProxyGET")
